@@ -1,7 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { redirectAfterClientLogin } from "@/lib/auth/redirect-after-client-login";
+import { getAuthErrorMessage } from "@/lib/auth/errors";
 import { createClient } from "@/lib/supabase/client";
+
+const inputClassName =
+  "rounded-2xl border border-violet-500/20 bg-[#2a1845]/80 px-4 py-4 text-base text-white placeholder:text-violet-200/40 outline-none focus:border-violet-400/50";
 
 function MailIcon() {
   return (
@@ -98,9 +103,15 @@ function LoginButton({
 export function LoginButtons() {
   const supabase = createClient();
   const [showEmailForm, setShowEmailForm] = useState(false);
+  const [emailMode, setEmailMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  async function redirectAfterLogin(userId: string) {
+    await redirectAfterClientLogin(supabase, userId);
+  }
 
   async function signInWithProvider(provider: "google" | "github") {
     setLoading(true);
@@ -114,9 +125,36 @@ export function LoginButtons() {
     });
 
     if (error) {
-      setMessage(error.message);
+      setMessage(getAuthErrorMessage(error.message));
       setLoading(false);
     }
+  }
+
+  async function sendPasswordReset() {
+    if (!email) {
+      setMessage("Najpierw wpisz swój email.");
+      return;
+    }
+
+    setLoading(true);
+    setMessage(null);
+
+    const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent("/auth/reset-password")}`;
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo,
+    });
+
+    setLoading(false);
+
+    if (error) {
+      setMessage(getAuthErrorMessage(error.message));
+      return;
+    }
+
+    setMessage(
+      "Wysłaliśmy link do ustawienia hasła. Kliknij go od razu — link wygasa po ok. 1 godzinie.",
+    );
   }
 
   async function signInWithEmail(event: React.FormEvent) {
@@ -124,21 +162,46 @@ export function LoginButtons() {
     setLoading(true);
     setMessage(null);
 
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
-      },
-    });
+    if (emailMode === "login") {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    setLoading(false);
+      if (error) {
+        setMessage(getAuthErrorMessage(error.message));
+        setLoading(false);
+        return;
+      }
 
-    if (error) {
-      setMessage(error.message);
+      if (data.user) {
+        await redirectAfterLogin(data.user.id);
+      }
+
+      setLoading(false);
       return;
     }
 
-    setMessage("Sprawdź skrzynkę email — wysłaliśmy link do logowania.");
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+    });
+
+    if (error) {
+      setMessage(getAuthErrorMessage(error.message));
+      setLoading(false);
+      return;
+    }
+
+    if (data.session && data.user) {
+      await redirectAfterLogin(data.user.id);
+      setLoading(false);
+      return;
+    }
+
+    setMessage("Konto utworzone. Możesz się teraz zalogować.");
+    setEmailMode("login");
+    setLoading(false);
   }
 
   return (
@@ -151,18 +214,61 @@ export function LoginButtons() {
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             placeholder="twój@email.com"
-            className="rounded-2xl border border-violet-500/20 bg-[#2a1845]/80 px-4 py-4 text-base text-white placeholder:text-violet-200/40 outline-none focus:border-violet-400/50"
+            className={inputClassName}
+            autoComplete="email"
+          />
+          <input
+            type="password"
+            required
+            minLength={6}
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder="Hasło (min. 6 znaków)"
+            className={inputClassName}
+            autoComplete={
+              emailMode === "login" ? "current-password" : "new-password"
+            }
           />
           <button
             type="submit"
             disabled={loading}
             className="rounded-2xl bg-gradient-to-r from-indigo-500 to-violet-500 px-6 py-4 text-base font-medium text-white disabled:opacity-60"
           >
-            Wyślij link logowania
+            {loading
+              ? "Proszę czekać…"
+              : emailMode === "login"
+                ? "Zaloguj"
+                : "Utwórz konto"}
+          </button>
+          {emailMode === "login" && (
+            <button
+              type="button"
+              onClick={sendPasswordReset}
+              disabled={loading}
+              className="text-sm text-violet-200/60"
+            >
+              Zapomniałeś hasła?
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() =>
+              setEmailMode(emailMode === "login" ? "register" : "login")
+            }
+            className="text-sm text-violet-200/60"
+          >
+            {emailMode === "login"
+              ? "Nie masz konta? Zarejestruj się"
+              : "Masz konto? Zaloguj się"}
           </button>
           <button
             type="button"
-            onClick={() => setShowEmailForm(false)}
+            onClick={() => {
+              setShowEmailForm(false);
+              setEmailMode("login");
+              setPassword("");
+              setMessage(null);
+            }}
             className="text-sm text-violet-200/60"
           >
             Wróć

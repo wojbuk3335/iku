@@ -1,11 +1,13 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { getProfileAuthContext } from "@/lib/auth/get-profile-auth";
+import { getPostLoginPath } from "@/lib/auth/paths";
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
-  const next = searchParams.get("next") ?? "/events";
+  const next = searchParams.get("next");
 
   if (code) {
     const cookieStore = await cookies();
@@ -29,7 +31,26 @@ export async function GET(request: Request) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
 
     if (!error) {
-      return NextResponse.redirect(`${origin}${next}`);
+      if (next?.startsWith("/") && !next.startsWith("//")) {
+        return NextResponse.redirect(`${origin}${next}`);
+      }
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      let redirectPath = "/events";
+
+      if (user) {
+        const { role, onboardingCompleted } = await getProfileAuthContext(
+          supabase,
+          user.id,
+        );
+
+        redirectPath = getPostLoginPath(role, onboardingCompleted);
+      }
+
+      return NextResponse.redirect(`${origin}${redirectPath}`);
     }
   }
 

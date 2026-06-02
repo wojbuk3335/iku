@@ -20,7 +20,15 @@
 }
 
 body {
-  background: #0a0612;
+  background: #080810;
   color: #ededed;
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  width: 100%;
+  max-width: none;
+  overflow-x: hidden;
+}
+
+html {
+  width: 100%;
+  max-width: none;
 }
