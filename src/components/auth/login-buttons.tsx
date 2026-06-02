@@ -1,8 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { redirectAfterClientLogin } from "@/lib/auth/redirect-after-client-login";
-import { getAuthErrorMessage } from "@/lib/auth/errors";
+import {
+  getAuthCallbackErrorMessage,
+  getAuthErrorMessage,
+} from "@/lib/auth/errors";
 import { createClient } from "@/lib/supabase/client";
 
 const inputClassName =
@@ -101,13 +105,27 @@ function LoginButton({
 }
 
 export function LoginButtons() {
+  const searchParams = useSearchParams();
   const supabase = createClient();
   const [showEmailForm, setShowEmailForm] = useState(false);
   const [emailMode, setEmailMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [oauthProvider, setOauthProvider] = useState<"google" | "github" | null>(
+    null,
+  );
   const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (searchParams.get("error") !== "auth") {
+      return;
+    }
+
+    setMessage(
+      getAuthCallbackErrorMessage(searchParams.get("reason")),
+    );
+  }, [searchParams]);
 
   async function redirectAfterLogin(userId: string) {
     await redirectAfterClientLogin(supabase, userId);
@@ -115,9 +133,10 @@ export function LoginButtons() {
 
   async function signInWithProvider(provider: "google" | "github") {
     setLoading(true);
+    setOauthProvider(provider);
     setMessage(null);
 
-    const { error } = await supabase.auth.signInWithOAuth({
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
         redirectTo: `${window.location.origin}/auth/callback`,
@@ -127,6 +146,12 @@ export function LoginButtons() {
     if (error) {
       setMessage(getAuthErrorMessage(error.message));
       setLoading(false);
+      setOauthProvider(null);
+      return;
+    }
+
+    if (data.url) {
+      window.location.assign(data.url);
     }
   }
 
@@ -284,13 +309,21 @@ export function LoginButtons() {
           />
           <LoginButton
             icon={<GitHubIcon />}
-            label="Kontynuuj z GitHub"
+            label={
+              oauthProvider === "github"
+                ? "Przekierowanie do GitHub…"
+                : "Kontynuuj z GitHub"
+            }
             onClick={() => signInWithProvider("github")}
             disabled={loading}
           />
           <LoginButton
             icon={<GoogleIcon />}
-            label="Kontynuuj z Google"
+            label={
+              oauthProvider === "google"
+                ? "Przekierowanie do Google…"
+                : "Kontynuuj z Google"
+            }
             variant="google"
             onClick={() => signInWithProvider("google")}
             disabled={loading}

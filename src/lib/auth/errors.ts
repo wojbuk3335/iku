@@ -17,5 +17,17 @@ export function getAuthErrorMessage(message: string): string {
     return "Ten email jest już zarejestrowany. Użyj „Zaloguj” zamiast rejestracji.";
   }
 
+  if (lower.includes("oauth") || lower.includes("provider")) {
+    return "Logowanie przez GitHub/Google nie jest skonfigurowane. Sprawdź ustawienia w Supabase.";
+  }
+
   return message;
+}
+
+export function getAuthCallbackErrorMessage(reason: string | null): string | null {
+  if (!reason) {
+    return "Logowanie nie powiodło się. Spróbuj ponownie.";
+  }
+
+  return getAuthErrorMessage(decodeURIComponent(reason));
 }

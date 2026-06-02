@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { LoginButtons } from "@/components/auth/login-buttons";
 
 export default function Home() {
@@ -9,7 +10,9 @@ export default function Home() {
           Odkrywaj wydarzenia, łącz się z ludźmi
         </p>
 
-        <LoginButtons />
+        <Suspense fallback={null}>
+          <LoginButtons />
+        </Suspense>
       </div>
 
       <p className="px-6 pb-8 text-center text-xs leading-relaxed text-violet-200/40">
