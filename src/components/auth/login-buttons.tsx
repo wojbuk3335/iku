@@ -96,7 +96,7 @@ function LoginButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`flex w-full items-center justify-center gap-3 rounded-2xl px-6 py-4.5 text-base font-medium text-white transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${styles}`}
+      className={`flex w-full cursor-pointer items-center justify-center gap-3 rounded-2xl px-6 py-4.5 text-base font-medium text-white transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${styles}`}
     >
       {icon}
       {label}
