@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { completeOnboarding } from "@/app/onboarding/actions";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import {
@@ -10,7 +9,6 @@ import {
 } from "@/types/interests";
 
 export function InterestsPicker() {
-  const router = useRouter();
   const [selected, setSelected] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -34,8 +32,7 @@ export function InterestsPicker() {
     startTransition(async () => {
       try {
         const path = await completeOnboarding(selected);
-        router.push(path);
-        router.refresh();
+        window.location.assign(path);
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Nie udało się zapisać wyboru.",

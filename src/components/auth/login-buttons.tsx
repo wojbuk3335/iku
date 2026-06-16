@@ -118,6 +118,13 @@ export function LoginButtons() {
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
+    if (searchParams.has("code")) {
+      const callback = new URL("/auth/callback", window.location.origin);
+      callback.search = searchParams.toString();
+      window.location.replace(callback.toString());
+      return;
+    }
+
     if (searchParams.get("error") !== "auth") {
       return;
     }

@@ -5,8 +5,16 @@ import { getPostLoginPath } from "@/lib/auth/paths";
 import type { UserRole } from "@/types/profile";
 
 export async function middleware(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request });
   const pathname = request.nextUrl.pathname;
+
+  // OAuth czasem wraca z ?code= na / zamiast /auth/callback (np. zła Site URL w Supabase)
+  if (pathname === "/" && request.nextUrl.searchParams.has("code")) {
+    const callbackUrl = new URL("/auth/callback", request.url);
+    callbackUrl.search = request.nextUrl.search;
+    return NextResponse.redirect(callbackUrl);
+  }
+
+  let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

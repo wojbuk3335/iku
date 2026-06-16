@@ -1,8 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState, useTransition } from "react";
+import { createEvent } from "@/app/admin/actions";
+import { EventDatePicker } from "@/components/admin/event-date-picker";
 import { SignOutButton } from "@/components/auth/sign-out-button";
+import { uploadEventCover } from "@/lib/events/upload-event-cover";
 import { INTEREST_CATEGORIES } from "@/types/interests";
+import type { EventCategory } from "@/types/event";
 
 const fieldClassName =
   "w-full rounded-[20px] border border-[#2a2640]/80 bg-[#101018]/70 px-5 py-4.5 text-lg text-white outline-none placeholder:text-zinc-500 focus:border-violet-500/50";
@@ -45,12 +49,88 @@ function PinIcon() {
 }
 
 export function CreateEventForm() {
-  const [category, setCategory] = useState<string | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [category, setCategory] = useState<EventCategory | null>(null);
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [coverPreview, setCoverPreview] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  function handleCoverChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    setError(null);
+
+    if (!file) {
+      setCoverFile(null);
+      setCoverPreview(null);
+      return;
+    }
+
+    setCoverFile(file);
+    setCoverPreview(URL.createObjectURL(file));
+  }
+
+  function clearCover() {
+    setCoverFile(null);
+    setCoverPreview(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setMessage("Formularz działa — zapis eventów dodamy w następnym kroku.");
+    setMessage(null);
+    setError(null);
+
+    if (!category) {
+      setError("Wybierz kategorię.");
+      return;
+    }
+
+    const formData = new FormData(event.currentTarget);
+    const title = String(formData.get("title") ?? "");
+    const description = String(formData.get("description") ?? "");
+    const date = String(formData.get("date") ?? "");
+    const time = String(formData.get("time") ?? "");
+    const location = String(formData.get("location") ?? "");
+
+    if (!date || !time) {
+      setError("Podaj datę i godzinę.");
+      return;
+    }
+
+    const startsAt = new Date(`${date}T${time}`).toISOString();
+
+    startTransition(async () => {
+      try {
+        let coverUrl: string | undefined;
+
+        if (coverFile) {
+          coverUrl = await uploadEventCover(coverFile);
+        }
+
+        const { id } = await createEvent({
+          title,
+          description: description || undefined,
+          category,
+          starts_at: startsAt,
+          location,
+          cover_url: coverUrl,
+        });
+
+        setMessage(`Wydarzenie utworzone (id: ${id.slice(0, 8)}…).`);
+        setCategory(null);
+        clearCover();
+        formRef.current?.reset();
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Nie udało się utworzyć wydarzenia.",
+        );
+      }
+    });
   }
 
   return (
@@ -63,21 +143,66 @@ export function CreateEventForm() {
           <SignOutButton className="mt-0 shrink-0" />
         </div>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-8">
+        <form
+          ref={formRef}
+          onSubmit={handleSubmit}
+          className="flex flex-col gap-8"
+        >
           <div>
-            <label className={labelClassName}>Event Cover</label>
+            <label className={labelClassName} htmlFor="cover">
+              Event Cover
+            </label>
+            <input
+              ref={fileInputRef}
+              id="cover"
+              name="cover"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="sr-only"
+              onChange={handleCoverChange}
+              disabled={isPending}
+            />
             <button
               type="button"
-              className="flex h-56 w-full flex-col items-center justify-center gap-3 rounded-[20px] border border-dashed border-[#2a2640] bg-[#101018]/50 transition-colors hover:border-violet-500/40"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isPending}
+              className="relative flex h-56 w-full flex-col items-center justify-center gap-3 overflow-hidden rounded-[20px] border border-dashed border-[#2a2640] bg-[#101018]/50 transition-colors hover:border-violet-500/40 disabled:opacity-60"
             >
-              <ImageIcon />
-              <span className="text-lg font-medium text-zinc-300">
-                Upload cover image
-              </span>
-              <span className="text-base text-zinc-500">
-                Recommended: 1920×1080
-              </span>
+              {coverPreview ? (
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={coverPreview}
+                    alt="Podgląd okładki"
+                    className="absolute inset-0 h-full w-full object-cover"
+                  />
+                  <div className="absolute inset-0 bg-black/40" />
+                  <span className="relative text-lg font-medium text-white">
+                    Zmień zdjęcie
+                  </span>
+                </>
+              ) : (
+                <>
+                  <ImageIcon />
+                  <span className="text-lg font-medium text-zinc-300">
+                    Upload cover image
+                  </span>
+                  <span className="text-base text-zinc-500">
+                    JPG, PNG, WEBP · max 5 MB
+                  </span>
+                </>
+              )}
             </button>
+            {coverPreview && (
+              <button
+                type="button"
+                onClick={clearCover}
+                disabled={isPending}
+                className="mt-2 text-sm text-zinc-400 transition-colors hover:text-zinc-200"
+              >
+                Usuń zdjęcie
+              </button>
+            )}
           </div>
 
           <div>
@@ -88,8 +213,10 @@ export function CreateEventForm() {
               id="title"
               name="title"
               type="text"
+              required
               placeholder="Neon Pulse Festival"
               className={fieldClassName}
+              disabled={isPending}
             />
           </div>
 
@@ -103,6 +230,7 @@ export function CreateEventForm() {
               rows={5}
               placeholder="Tell people what your event is about..."
               className={`${fieldClassName} resize-none`}
+              disabled={isPending}
             />
           </div>
 
@@ -117,7 +245,8 @@ export function CreateEventForm() {
                     key={item.id}
                     type="button"
                     onClick={() => setCategory(item.id)}
-                    className={`flex h-[142px] flex-col items-center justify-center gap-2.5 rounded-[20px] border transition-all ${
+                    disabled={isPending}
+                    className={`flex h-[142px] flex-col items-center justify-center gap-2.5 rounded-[20px] border transition-all disabled:opacity-60 ${
                       isSelected
                         ? "border-violet-500 bg-[#151022]/90 shadow-[0_0_20px_rgba(139,92,246,0.25)]"
                         : "border-[#2a2640]/80 bg-[#101018]/70 hover:border-[#3a3650]"
@@ -140,12 +269,7 @@ export function CreateEventForm() {
               <label htmlFor="date" className={labelClassName}>
                 Date
               </label>
-              <input
-                id="date"
-                name="date"
-                type="date"
-                className={fieldClassName}
-              />
+              <EventDatePicker id="date" name="date" disabled={isPending} />
             </div>
             <div>
               <label htmlFor="time" className={labelClassName}>
@@ -155,7 +279,9 @@ export function CreateEventForm() {
                 id="time"
                 name="time"
                 type="time"
+                required
                 className={fieldClassName}
+                disabled={isPending}
               />
             </div>
           </div>
@@ -172,8 +298,10 @@ export function CreateEventForm() {
                 id="location"
                 name="location"
                 type="text"
+                required
                 placeholder="Brooklyn Warehouse"
                 className={`${fieldClassName} pl-14`}
+                disabled={isPending}
               />
             </div>
           </div>
@@ -188,6 +316,7 @@ export function CreateEventForm() {
             <button
               type="button"
               className="w-full rounded-[20px] border border-[#2a2640]/80 bg-[#101018]/70 px-5 py-4.5 text-left text-lg text-zinc-400 transition-colors hover:border-violet-500/40"
+              disabled={isPending}
             >
               + Create Achievement
             </button>
@@ -195,11 +324,15 @@ export function CreateEventForm() {
 
           <button
             type="submit"
-            className="mt-2 h-16 w-full rounded-[20px] bg-gradient-to-r from-blue-500 to-violet-600 text-xl font-semibold text-white shadow-[0_0_24px_rgba(99,102,241,0.35)] transition-opacity hover:opacity-95"
+            disabled={isPending}
+            className="mt-2 h-16 w-full rounded-[20px] bg-gradient-to-r from-blue-500 to-violet-600 text-xl font-semibold text-white shadow-[0_0_24px_rgba(99,102,241,0.35)] transition-opacity hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Create Event
+            {isPending ? "Zapisywanie…" : "Create Event"}
           </button>
 
+          {error && (
+            <p className="text-center text-lg text-red-300">{error}</p>
+          )}
           {message && (
             <p className="text-center text-lg text-violet-200/80">{message}</p>
           )}
