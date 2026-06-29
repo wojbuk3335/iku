@@ -21,6 +21,6 @@ export async function getUserEventsByStatus(
   }
 
   return (data ?? [])
-    .map((row) => row.events as Event | null)
+    .map((row) => row.events as unknown as Event | null)
     .filter((e): e is Event => e !== null);
 }
