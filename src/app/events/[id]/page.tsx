@@ -1,8 +1,11 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { getUserParticipation } from "@/app/events/actions";
 import { BottomNav } from "@/components/events/bottom-nav";
+import { EventParticipationButtons } from "@/components/events/event-participation-buttons";
 import { formatEventDate } from "@/lib/events/format-event-date";
 import { getCategoryMeta } from "@/lib/events/category-style";
+import { getGoingCount } from "@/lib/events/get-going-counts";
 import { getSessionProfile } from "@/lib/auth/get-session-profile";
 import { createClient } from "@/lib/supabase/server";
 import type { Event } from "@/types/event";
@@ -39,6 +42,10 @@ export default async function EventDetailPage({
 
   const event = data as Event;
   const { label, emoji, gradient } = getCategoryMeta(event.category);
+  const [participation, goingCount] = await Promise.all([
+    getUserParticipation(event.id),
+    getGoingCount(event.id),
+  ]);
 
   return (
     <div className="mx-auto min-h-dvh max-w-lg bg-[#080810] pb-28 text-white">
@@ -89,20 +96,11 @@ export default async function EventDetailPage({
           </p>
         )}
 
-        <div className="grid grid-cols-2 gap-3 pt-2">
-          <button
-            type="button"
-            className="rounded-2xl bg-violet-600 py-3 text-sm font-semibold"
-          >
-            Idę
-          </button>
-          <button
-            type="button"
-            className="rounded-2xl border border-white/10 py-3 text-sm font-semibold text-zinc-300"
-          >
-            Zapisz
-          </button>
-        </div>
+        <EventParticipationButtons
+          eventId={event.id}
+          initialParticipation={participation}
+          goingCount={goingCount}
+        />
       </main>
 
       <BottomNav />

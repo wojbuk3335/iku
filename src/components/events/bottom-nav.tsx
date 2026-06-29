@@ -1,11 +1,8 @@
 "use client";
 
-type NavItem = {
-  id: string;
-  label?: string;
-  active?: boolean;
-  icon: React.ReactNode;
-};
+import Link from "next/link";
+
+export type ActivePage = "home" | "explore" | "map" | "notifications" | "profile";
 
 function HomeIcon({ active }: { active?: boolean }) {
   return (
@@ -24,14 +21,14 @@ function HomeIcon({ active }: { active?: boolean }) {
   );
 }
 
-function CompassIcon() {
+function CompassIcon({ active }: { active?: boolean }) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.8"
+      strokeWidth={active ? "2.2" : "1.8"}
       className="h-6 w-6"
       aria-hidden
     >
@@ -93,33 +90,61 @@ function UserIcon() {
   );
 }
 
-const NAV_ITEMS: NavItem[] = [
-  { id: "home", label: "Home", active: true, icon: <HomeIcon active /> },
-  { id: "explore", icon: <CompassIcon /> },
-  { id: "map", icon: <MapIcon /> },
-  { id: "notifications", icon: <BellIcon /> },
-  { id: "profile", icon: <UserIcon /> },
-];
+export function BottomNav({ activePage = "home" }: { activePage?: ActivePage }) {
 
-export function BottomNav() {
+  const activeClass = "text-blue-500";
+  const inactiveClass = "text-zinc-500";
+
   return (
     <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-white/5 bg-[#080810]/95 backdrop-blur-md">
       <div className="mx-auto flex max-w-lg items-end justify-around px-2 pb-5 pt-2">
-        {NAV_ITEMS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className={`flex min-w-14 flex-col items-center gap-1 ${
-              item.active ? "text-blue-500" : "text-zinc-500"
-            }`}
-            aria-current={item.active ? "page" : undefined}
-          >
-            {item.icon}
-            {item.label && (
-              <span className="text-[11px] font-medium">{item.label}</span>
-            )}
-          </button>
-        ))}
+
+        {/* Home */}
+        <Link
+          href="/events"
+          className={`flex min-w-14 flex-col items-center gap-1 ${activePage === "home" ? activeClass : inactiveClass}`}
+          aria-current={activePage === "home" ? "page" : undefined}
+        >
+          <HomeIcon active={activePage === "home"} />
+          <span className="text-[11px] font-medium">Home</span>
+        </Link>
+
+        {/* Explore */}
+        <Link
+          href="/explore"
+          className={`flex min-w-14 flex-col items-center gap-1 ${activePage === "explore" ? activeClass : inactiveClass}`}
+          aria-current={activePage === "explore" ? "page" : undefined}
+        >
+          <CompassIcon active={activePage === "explore"} />
+          <span className="text-[11px] font-medium">Odkryj</span>
+        </Link>
+
+        {/* Map — placeholder */}
+        <button
+          type="button"
+          className="flex min-w-14 flex-col items-center gap-1 text-zinc-500"
+        >
+          <MapIcon />
+        </button>
+
+        {/* Notifications — placeholder */}
+        <button
+          type="button"
+          className="flex min-w-14 flex-col items-center gap-1 text-zinc-500"
+        >
+          <BellIcon />
+        </button>
+
+        {/* Profile */}
+        <Link
+          href="/profile"
+          className={`flex min-w-14 flex-col items-center gap-1 ${activePage === "profile" ? activeClass : inactiveClass}`}
+          aria-current={activePage === "profile" ? "page" : undefined}
+        >
+          <UserIcon />
+          <span className="text-[11px] font-medium">Profil</span>
+        </Link>
+
       </div>
     </nav>
   );

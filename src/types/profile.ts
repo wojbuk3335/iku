@@ -7,4 +7,5 @@ export type Profile = {
   created_at: string;
   onboarding_completed: boolean;
   interests: string[];
+  bio: string | null;
 };

@@ -39,7 +39,7 @@ export async function getSessionProfile() {
 
   const { data: extendedProfile } = await supabase
     .from("profiles")
-    .select("onboarding_completed, interests")
+    .select("onboarding_completed, interests, bio")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -48,6 +48,7 @@ export async function getSessionProfile() {
     role: baseProfile.role,
     onboarding_completed: extendedProfile?.onboarding_completed ?? false,
     interests: extendedProfile?.interests ?? [],
+    bio: extendedProfile?.bio ?? null,
   };
 
   return { user, profile };
