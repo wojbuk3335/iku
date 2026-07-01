@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { checkAndAwardBadges } from "@/lib/profile/badges";
 import type { ParticipationStatus, UserParticipation } from "@/types/participation";
 
 export async function toggleParticipation(
@@ -50,6 +51,9 @@ export async function toggleParticipation(
 
   revalidatePath("/events");
   revalidatePath(`/events/${eventId}`);
+
+  // Sprawdź i przyznaj odznaki (w tle — nie blokuje odpowiedzi)
+  checkAndAwardBadges(user.id).catch(console.error);
 
   return getUserParticipation(eventId);
 }

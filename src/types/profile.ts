@@ -8,4 +8,6 @@ export type Profile = {
   onboarding_completed: boolean;
   interests: string[];
   bio: string | null;
+  avatar_url: string | null;
+  full_name: string | null;
 };
