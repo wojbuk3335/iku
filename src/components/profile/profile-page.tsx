@@ -5,10 +5,10 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { BottomNav } from "@/components/events/bottom-nav";
 import { updateBio, updateAvatarUrl, updateFullName } from "@/app/profile/actions";
-import { createPost, toggleReaction } from "@/app/profile/wall-actions";
+import { createPost, toggleReaction, getPostComments, createComment } from "@/app/profile/wall-actions";
 import type { Event } from "@/types/event";
 import type { Badge } from "@/lib/profile/badges";
-import type { Post } from "@/app/profile/wall-actions";
+import type { Post, Comment } from "@/app/profile/wall-actions";
 
 type ProfilePageProps = {
   email: string;
@@ -58,8 +58,17 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
   const [savingBio, setSavingBio] = useState(false);
   const [postContent, setPostContent] = useState("");
   const [postingContent, setPostingContent] = useState(false);
+  const [postImageFile, setPostImageFile] = useState<File | null>(null);
+  const [postImagePreview, setPostImagePreview] = useState<string | null>(null);
+  const [uploadingPostImage, setUploadingPostImage] = useState(false);
   const [localPosts, setLocalPosts] = useState<Post[]>(posts);
   const [reactingPostId, setReactingPostId] = useState<string | null>(null);
+  const [openCommentsPostId, setOpenCommentsPostId] = useState<string | null>(null);
+  const [commentsMap, setCommentsMap] = useState<Record<string, Comment[]>>({});
+  const [loadingCommentsId, setLoadingCommentsId] = useState<string | null>(null);
+  const [commentInputs, setCommentInputs] = useState<Record<string, string>>({});
+  const [submittingCommentId, setSubmittingCommentId] = useState<string | null>(null);
+  const [copiedPostId, setCopiedPostId] = useState<string | null>(null);
   const [currentAvatarUrl, setCurrentAvatarUrl] = useState<string | null>(avatarUrl);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [editingName, setEditingName] = useState(false);
@@ -105,15 +114,42 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
     }
   }
 
+  function handlePostImageChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { alert("Zdjęcie max 5 MB."); return; }
+    setPostImageFile(file);
+    setPostImagePreview(URL.createObjectURL(file));
+  }
+
+  function clearPostImage() {
+    setPostImageFile(null);
+    setPostImagePreview(null);
+  }
+
   async function handleCreatePost() {
-    if (!postContent.trim()) return;
+    if (!postContent.trim() && !postImageFile) return;
     setPostingContent(true);
+    let imageUrl: string | null = null;
     try {
-      await createPost(postContent);
-      setPostContent("");
+      if (postImageFile) {
+        setUploadingPostImage(true);
+        const supabase = createClient();
+        const ext = postImageFile.name.split(".").pop();
+        const path = `${userId}/${Date.now()}.${ext}`;
+        const { error: upErr } = await supabase.storage
+          .from("post-images")
+          .upload(path, postImageFile, { upsert: false });
+        if (upErr) throw upErr;
+        const { data } = supabase.storage.from("post-images").getPublicUrl(path);
+        imageUrl = data.publicUrl;
+        setUploadingPostImage(false);
+      }
+      await createPost(postContent, imageUrl);
       const newPost: Post = {
         id: Date.now().toString(),
         content: postContent.trim(),
+        image_url: imageUrl,
         created_at: new Date().toISOString(),
         user_id: userId,
         author_name: nameValue || null,
@@ -123,12 +159,16 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
         event_title: null,
         reaction_count: 0,
         user_reacted: false,
+        comment_count: 0,
       };
       setLocalPosts((prev) => [newPost, ...prev]);
+      setPostContent("");
+      clearPostImage();
     } catch {
       alert("Nie udało się dodać posta.");
     } finally {
       setPostingContent(false);
+      setUploadingPostImage(false);
     }
   }
 
@@ -176,6 +216,66 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
     }
   }
 
+  async function handleShare(postId: string) {
+    const url = `${window.location.origin}/profile?post=${postId}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ url });
+      } else {
+        await navigator.clipboard.writeText(url);
+        setCopiedPostId(postId);
+        setTimeout(() => setCopiedPostId(null), 2000);
+      }
+    } catch {
+      // user cancelled share or clipboard denied
+    }
+  }
+
+  async function handleToggleComments(postId: string) {
+    if (openCommentsPostId === postId) {
+      setOpenCommentsPostId(null);
+      return;
+    }
+    setOpenCommentsPostId(postId);
+    if (!commentsMap[postId]) {
+      setLoadingCommentsId(postId);
+      const comments = await getPostComments(postId);
+      setCommentsMap((prev) => ({ ...prev, [postId]: comments }));
+      setLoadingCommentsId(null);
+    }
+  }
+
+  async function handleSubmitComment(postId: string) {
+    const content = commentInputs[postId] ?? "";
+    if (!content.trim()) return;
+    setSubmittingCommentId(postId);
+    try {
+      await createComment(postId, content);
+      const newComment: Comment = {
+        id: Date.now().toString(),
+        post_id: postId,
+        user_id: userId,
+        content: content.trim(),
+        created_at: new Date().toISOString(),
+        author_name: nameValue || null,
+        author_avatar: currentAvatarUrl,
+        author_email: email,
+      };
+      setCommentsMap((prev) => ({
+        ...prev,
+        [postId]: [...(prev[postId] ?? []), newComment],
+      }));
+      setLocalPosts((prev) =>
+        prev.map((p) => p.id === postId ? { ...p, comment_count: p.comment_count + 1 } : p)
+      );
+      setCommentInputs((prev) => ({ ...prev, [postId]: "" }));
+    } catch {
+      alert("Nie udało się dodać komentarza.");
+    } finally {
+      setSubmittingCommentId(null);
+    }
+  }
+
   async function handleSignOut() {
     setSigningOut(true);
     const supabase = createClient();
@@ -202,7 +302,12 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
         <span className="text-sm font-medium text-zinc-300">
           @{email.split("@")[0]}
         </span>
-        <div className="w-6" />
+        <Link href="/settings" className="text-zinc-400 hover:text-white transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-6 w-6">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+        </Link>
       </header>
 
       {/* Avatar + name */}
@@ -216,7 +321,7 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
             disabled={uploadingAvatar}
           />
           {/* Outer ring - blue border with gap */}
-          <div style={{ width: 96, height: 96, borderRadius: "50%", background: "#3b82f6", padding: 3, position: "relative" }}>
+          <div style={{ width: 96, height: 96, borderRadius: "50%", background: "linear-gradient(135deg, #a855f7, #7c3aed, #4f46e5)", padding: 3, position: "relative" }}>
             <div style={{ width: "100%", height: "100%", borderRadius: "50%", background: "#080810", padding: 2 }}>
               <div style={{ width: "100%", height: "100%", borderRadius: "50%", overflow: "hidden", position: "relative" }}>
                 {currentAvatarUrl ? (
@@ -469,38 +574,86 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
         {activeTab === "wall" && (
           <div className="space-y-3">
             {/* Composer */}
-            <div className="flex gap-3 rounded-2xl bg-white/5 p-3">
-              <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full">
-                {currentAvatarUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={currentAvatarUrl} alt="" className="h-full w-full object-cover" />
-                ) : (
-                  <div className={`flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br ${avatarGradient} text-xs font-bold`}>{initials}</div>
-                )}
-              </div>
-              <div className="flex flex-1 flex-col gap-2">
-                <textarea
-                  value={postContent}
-                  onChange={(e) => setPostContent(e.target.value)}
-                  placeholder="Co słychać? Podziel się z innymi…"
-                  maxLength={500}
-                  rows={2}
-                  className="w-full resize-none bg-transparent text-sm text-white placeholder-zinc-600 outline-none"
-                />
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-zinc-600">{postContent.length}/500</span>
-                  <button
-                    type="button"
-                    onClick={handleCreatePost}
-                    disabled={!postContent.trim() || postingContent}
-                    className="flex h-8 w-8 items-center justify-center rounded-full bg-violet-600 text-white disabled:opacity-40"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
-                      <path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" />
-                    </svg>
-                  </button>
+            <div className="rounded-2xl bg-white/5 p-3">
+              <div className="flex gap-3">
+                <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full">
+                  {currentAvatarUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={currentAvatarUrl} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    <div className={`flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br ${avatarGradient} text-xs font-bold`}>{initials}</div>
+                  )}
+                </div>
+                <div className="flex flex-1 flex-col gap-2">
+                  <textarea
+                    value={postContent}
+                    onChange={(e) => setPostContent(e.target.value)}
+                    placeholder="Co słychać? Podziel się z znajomymi…"
+                    maxLength={500}
+                    rows={2}
+                    className="w-full resize-none bg-transparent text-sm text-white placeholder-zinc-600 outline-none"
+                  />
+                  <div className="flex items-center justify-between">
+                    <label className="cursor-pointer text-zinc-500 hover:text-zinc-300 transition-colors">
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp,image/gif"
+                        className="sr-only"
+                        onChange={handlePostImageChange}
+                      />
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                        <circle cx="8.5" cy="8.5" r="1.5" />
+                        <polyline points="21 15 16 10 5 21" />
+                      </svg>
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-zinc-600">{postContent.length}/500</span>
+                      <button
+                        type="button"
+                        onClick={handleCreatePost}
+                        disabled={(!postContent.trim() && !postImageFile) || postingContent}
+                        className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-500 text-white disabled:opacity-40"
+                      >
+                        {postingContent ? (
+                          <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                          </svg>
+                        ) : (
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
+                            <path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" />
+                          </svg>
+                        )}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
+              {/* Image preview */}
+              {postImagePreview && (
+                <div className="relative mt-2 overflow-hidden rounded-xl">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={postImagePreview} alt="Podgląd" className="max-h-48 w-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={clearPostImage}
+                    className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-3.5 w-3.5">
+                      <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                  {uploadingPostImage && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+                      <svg className="h-8 w-8 animate-spin text-white" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                      </svg>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Posts feed */}
@@ -512,8 +665,9 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
                   ? post.author_name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2)
                   : post.author_email.slice(0, 2).toUpperCase();
                 return (
-                  <div key={post.id} className="rounded-2xl bg-white/5 p-4">
-                    <div className="flex items-start gap-3">
+                  <div key={post.id} className="overflow-hidden rounded-2xl bg-white/5">
+                    {/* Header + text */}
+                    <div className="flex items-start gap-3 px-4 pt-4">
                       <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full">
                         {post.author_avatar ? (
                           // eslint-disable-next-line @next/next/no-img-element
@@ -522,7 +676,7 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
                           <div className={`flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br ${avatarGradient} text-xs font-bold`}>{postInitials}</div>
                         )}
                       </div>
-                      <div className="flex-1">
+                      <div className="flex-1 pb-3">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-semibold">{post.author_name || post.author_email.split("@")[0]}</span>
                           {post.event_title && (
@@ -534,8 +688,19 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
                         <p className="mt-0.5 text-xs text-zinc-500">
                           {new Date(post.created_at).toLocaleDateString("pl-PL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
                         </p>
-                        <p className="mt-2 text-sm leading-relaxed text-zinc-200">{post.content}</p>
-                        <div className="mt-3 flex items-center gap-4">
+                        {post.content && <p className="mt-2 text-sm leading-relaxed text-zinc-200">{post.content}</p>}
+                      </div>
+                    </div>
+                    {/* Full-width image */}
+                    {post.image_url && (
+                      <div className="px-3 pb-1">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={post.image_url} alt="" className="w-full rounded-xl object-cover max-h-80" />
+                      </div>
+                    )}
+                    {/* Reactions */}
+                    <div className="px-4 pb-3">
+                    <div className="mt-3 flex items-center gap-4">
                           <button
                             type="button"
                             onClick={() => handleReaction(post.id)}
@@ -547,8 +712,104 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
                             </svg>
                             {post.reaction_count > 0 && <span>{post.reaction_count}</span>}
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleComments(post.id)}
+                            className={`flex items-center gap-1.5 text-sm transition-colors ${openCommentsPostId === post.id ? "text-blue-400" : "text-zinc-500 hover:text-blue-400"}`}
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
+                              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                            </svg>
+                            {post.comment_count > 0 && <span>{post.comment_count}</span>}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleShare(post.id)}
+                            className="ml-auto flex items-center gap-1.5 text-sm text-zinc-500 transition-colors hover:text-zinc-300"
+                          >
+                            {copiedPostId === post.id ? (
+                              <>
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4 text-green-400">
+                                  <polyline points="20 6 9 17 4 12" />
+                                </svg>
+                                <span className="text-xs text-green-400">Skopiowano</span>
+                              </>
+                            ) : (
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
+                                <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
+                                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                              </svg>
+                            )}
+                          </button>
                         </div>
-                      </div>
+
+                        {/* Comments section */}
+                        {openCommentsPostId === post.id && (
+                          <div className="mt-3 border-t border-white/5 pt-3">
+                            {loadingCommentsId === post.id ? (
+                              <p className="text-xs text-zinc-600">Ładowanie…</p>
+                            ) : (
+                              <div className="space-y-2">
+                                {(commentsMap[post.id] ?? []).length === 0 && (
+                                  <p className="text-xs text-zinc-600">Brak komentarzy. Napisz pierwszy!</p>
+                                )}
+                                {(commentsMap[post.id] ?? []).map((c) => {
+                                  const cInitials = c.author_name
+                                    ? c.author_name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2)
+                                    : c.author_email.slice(0, 2).toUpperCase();
+                                  return (
+                                    <div key={c.id} className="flex gap-2">
+                                      <div className="h-6 w-6 shrink-0 overflow-hidden rounded-full">
+                                        {c.author_avatar ? (
+                                          // eslint-disable-next-line @next/next/no-img-element
+                                          <img src={c.author_avatar} alt="" className="h-full w-full object-cover" />
+                                        ) : (
+                                          <div className={`flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br ${avatarGradient} text-[9px] font-bold`}>{cInitials}</div>
+                                        )}
+                                      </div>
+                                      <div className="flex-1 rounded-xl bg-white/5 px-3 py-1.5">
+                                        <span className="text-xs font-semibold text-zinc-300">{c.author_name || c.author_email.split("@")[0]}</span>
+                                        <p className="text-xs text-zinc-400">{c.content}</p>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                                {/* Comment input */}
+                                <div className="flex gap-2 pt-1">
+                                  <div className="h-6 w-6 shrink-0 overflow-hidden rounded-full">
+                                    {currentAvatarUrl ? (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img src={currentAvatarUrl} alt="" className="h-full w-full object-cover" />
+                                    ) : (
+                                      <div className={`flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br ${avatarGradient} text-[9px] font-bold`}>{initials}</div>
+                                    )}
+                                  </div>
+                                  <div className="flex flex-1 items-center gap-2 rounded-xl bg-white/5 px-3 py-1.5">
+                                    <input
+                                      type="text"
+                                      value={commentInputs[post.id] ?? ""}
+                                      onChange={(e) => setCommentInputs((prev) => ({ ...prev, [post.id]: e.target.value }))}
+                                      onKeyDown={(e) => e.key === "Enter" && handleSubmitComment(post.id)}
+                                      placeholder="Napisz komentarz…"
+                                      maxLength={300}
+                                      className="flex-1 bg-transparent text-xs text-white placeholder-zinc-600 outline-none"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSubmitComment(post.id)}
+                                      disabled={!(commentInputs[post.id] ?? "").trim() || submittingCommentId === post.id}
+                                      className="text-blue-500 disabled:opacity-30 hover:text-blue-400"
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
+                                        <path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" />
+                                      </svg>
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
                     </div>
                   </div>
                 );
@@ -615,17 +876,6 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
         )}
       </main>
 
-      {/* Sign out */}
-      <div className="px-4 pt-8">
-        <button
-          type="button"
-          onClick={handleSignOut}
-          disabled={signingOut}
-          className="w-full rounded-2xl border border-white/10 py-3 text-sm font-medium text-zinc-400 transition-colors hover:border-red-500/30 hover:text-red-400 disabled:opacity-40"
-        >
-          {signingOut ? "Wylogowywanie…" : "Wyloguj się"}
-        </button>
-      </div>
 
       <BottomNav activePage="profile" />
     </div>
