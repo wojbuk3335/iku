@@ -4,6 +4,34 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { checkAndAwardBadges } from "@/lib/profile/badges";
 import type { ParticipationStatus, UserParticipation } from "@/types/participation";
+import type { CreateEventInput } from "@/types/event";
+
+export async function createEvent(input: CreateEventInput): Promise<string> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Musisz być zalogowany.");
+
+  const { data, error } = await supabase
+    .from("events")
+    .insert({
+      title:       input.title,
+      description: input.description ?? null,
+      category:    input.category,
+      starts_at:   input.starts_at,
+      location:    input.location,
+      cover_url:   input.cover_url ?? null,
+      status:      "published",
+      created_by:  user.id,
+    })
+    .select("id")
+    .single();
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/events");
+  revalidatePath("/profile");
+  return data.id;
+}
 
 export async function toggleParticipation(
   eventId: string,
