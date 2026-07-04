@@ -589,9 +589,8 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
         >
           Utwórz wydarzenie
         </Link>
-        <button
-          type="button"
-          onClick={() => setActiveTab("badges")}
+        <Link
+          href="/badges/create"
           className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-zinc-800 py-2.5 text-xs font-semibold text-zinc-100 hover:bg-zinc-700 active:scale-95 transition-transform"
         >
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4 text-zinc-300">
@@ -599,7 +598,7 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
             <path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11" />
           </svg>
           Odznaka
-        </button>
+        </Link>
       </div>
 
       {/* Tabs */}
@@ -932,15 +931,15 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
           <div className="space-y-5 pb-4">
 
             {/* Utwórz własną odznakę */}
-            <button
-              type="button"
+            <Link
+              href="/badges/create"
               className="flex w-full items-center gap-2 rounded-2xl bg-white/5 px-4 py-3 text-sm text-zinc-400 transition-colors hover:bg-white/10"
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="16" height="16">
                 <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
               </svg>
               Utwórz własną odznakę
-            </button>
+            </Link>
 
             {/* Postęp globalny */}
             <div>
