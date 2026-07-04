@@ -1043,30 +1043,83 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
         )}
 
         {/* Historia */}
-        {activeTab === "historia" && (
-          <div>
-            {goingEvents.length + savedEvents.length === 0 ? (
-              <div className="py-10 text-center">
-                <p className="text-3xl">📅</p>
-                <p className="mt-3 text-sm text-zinc-500">Brak aktywności.</p>
+        {activeTab === "historia" && (() => {
+          const MONTHS = ["sty","lut","mar","kwi","maj","cze","lip","sie","wrz","paź","lis","gru"];
+          const fmtDate = (iso: string) => {
+            const d = new Date(iso);
+            return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+          };
+
+          const allEvents = [
+            ...goingEvents.map((e) => ({ ...e, _status: "going" as const })),
+            ...savedEvents.map((e) => ({ ...e, _status: "saved" as const })),
+          ]
+            .filter((e, i, arr) => arr.findIndex((x) => x.id === e.id) === i)
+            .sort((a, b) => new Date(b.starts_at).getTime() - new Date(a.starts_at).getTime());
+
+          const uniqueCategories = new Set(allEvents.map((e) => e.category)).size;
+          const unlockedBadges = badgesWithProgress.filter((b) => b.unlocked).length;
+
+          return (
+            <div className="space-y-4 pb-4">
+              {/* Stats bar */}
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { value: allEvents.length,  label: "Wszystkich wydarzeń" },
+                  { value: uniqueCategories,  label: "Kategorie" },
+                  { value: unlockedBadges,    label: "Odznaki" },
+                ].map(({ value, label }) => (
+                  <div key={label} className="flex flex-col items-center justify-center rounded-2xl bg-white/5 py-3 px-2 text-center">
+                    <span className="text-xl font-bold text-white">{value}</span>
+                    <span className="mt-0.5 text-[11px] text-zinc-500 leading-tight">{label}</span>
+                  </div>
+                ))}
               </div>
-            ) : (
-              <div className="space-y-2">
-                {[...goingEvents.map((e) => ({ ...e, _status: "going" as const })), ...savedEvents.map((e) => ({ ...e, _status: "saved" as const }))]
-                  .sort((a, b) => new Date(b.starts_at).getTime() - new Date(a.starts_at).getTime())
-                  .map((event) => (
-                    <Link key={`${event._status}-${event.id}`} href={`/events/${event.id}`} className="flex items-center gap-3 rounded-2xl bg-white/5 p-3 hover:bg-white/10">
-                      <span className="text-lg">{event._status === "going" ? "🎟️" : "🔖"}</span>
-                      <div>
-                        <p className="text-sm font-medium">{event.title}</p>
-                        <p className="text-xs text-zinc-500">{event.location}</p>
+
+              {/* Event list */}
+              {allEvents.length === 0 ? (
+                <div className="rounded-2xl bg-white/5 py-10 text-center">
+                  <p className="text-2xl">📅</p>
+                  <p className="mt-2 text-sm text-zinc-500">Brak aktywności.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {allEvents.map((event) => (
+                    <Link
+                      key={`${event._status}-${event.id}`}
+                      href={`/events/${event.id}`}
+                      className="flex items-center gap-3 rounded-2xl bg-white/5 p-3 transition-colors hover:bg-white/10"
+                    >
+                      {/* Thumbnail */}
+                      <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-white/10">
+                        {event.cover_url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={event.cover_url} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-xl">
+                            🎪
+                          </div>
+                        )}
                       </div>
+
+                      {/* Info */}
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-white">{event.title}</p>
+                        <p className="text-xs text-amber-400">{fmtDate(event.starts_at)}</p>
+                        <p className="truncate text-xs text-blue-400">{event.location}</p>
+                      </div>
+
+                      {/* Chevron */}
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4 shrink-0 text-zinc-600">
+                        <polyline points="9 18 15 12 9 6"/>
+                      </svg>
                     </Link>
                   ))}
-              </div>
-            )}
-          </div>
-        )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Znajomi */}
         {activeTab === "znajomi" && (
