@@ -6,9 +6,11 @@ import { createClient } from "@/lib/supabase/client";
 import { BottomNav } from "@/components/events/bottom-nav";
 import { updateBio, updateAvatarUrl, updateFullName } from "@/app/profile/actions";
 import { createPost, toggleReaction, getPostComments, createComment } from "@/app/profile/wall-actions";
+import { followUser, unfollowUser } from "@/app/profile/znajomi-actions";
 import type { Event } from "@/types/event";
 import type { BadgeWithProgress } from "@/lib/profile/badges";
 import type { Post, Comment } from "@/app/profile/wall-actions";
+import type { FollowingUser, SuggestedUser } from "@/app/profile/znajomi-actions";
 
 type ProfilePageProps = {
   email: string;
@@ -22,6 +24,8 @@ type ProfilePageProps = {
   following: number;
   badgesWithProgress: BadgeWithProgress[];
   posts: Post[];
+  followingUsers: FollowingUser[];
+  suggestedUsers: SuggestedUser[];
 };
 
 function getInitials(email: string): string {
@@ -122,7 +126,7 @@ function BadgeIcon({ id, size = 20, color = "currentColor" }: { id: string; size
   }
 }
 
-export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEvents, savedEvents, followers, following, badgesWithProgress, posts }: ProfilePageProps) {
+export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEvents, savedEvents, followers, following, badgesWithProgress, posts, followingUsers, suggestedUsers }: ProfilePageProps) {
   const [activeTab, setActiveTab] = useState<Tab>("wall");
   const [signingOut, setSigningOut] = useState(false);
   const [editingBio, setEditingBio] = useState(false);
@@ -146,6 +150,10 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState(fullName ?? "");
   const [savingName, setSavingName] = useState(false);
+  const [localFollowing, setLocalFollowing] = useState<FollowingUser[]>(followingUsers);
+  const [localSuggestions, setLocalSuggestions] = useState<SuggestedUser[]>(suggestedUsers);
+  const [addingUserId, setAddingUserId] = useState<string | null>(null);
+  const [unfollowingUserId, setUnfollowingUserId] = useState<string | null>(null);
 
   const initials = getInitials(email);
   const avatarGradient = getAvatarColor(email);
@@ -345,6 +353,35 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
       alert("Nie udało się dodać komentarza.");
     } finally {
       setSubmittingCommentId(null);
+    }
+  }
+
+  async function handleFollow(user: SuggestedUser) {
+    setAddingUserId(user.id);
+    try {
+      await followUser(user.id);
+      setLocalFollowing((prev) => [...prev, { id: user.id, full_name: user.full_name, avatar_url: user.avatar_url, bio: null }]);
+      setLocalSuggestions((prev) => prev.filter((u) => u.id !== user.id));
+    } catch {
+      alert("Nie udało się dodać znajomego.");
+    } finally {
+      setAddingUserId(null);
+    }
+  }
+
+  async function handleUnfollow(userId: string) {
+    setUnfollowingUserId(userId);
+    try {
+      await unfollowUser(userId);
+      const removed = localFollowing.find((u) => u.id === userId);
+      setLocalFollowing((prev) => prev.filter((u) => u.id !== userId));
+      if (removed) {
+        setLocalSuggestions((prev) => [{ id: removed.id, full_name: removed.full_name, avatar_url: removed.avatar_url, mutual_count: 0 }, ...prev]);
+      }
+    } catch {
+      alert("Nie udało się usunąć znajomego.");
+    } finally {
+      setUnfollowingUserId(null);
     }
   }
 
@@ -1033,10 +1070,141 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
 
         {/* Znajomi */}
         {activeTab === "znajomi" && (
-          <div className="py-10 text-center">
-            <p className="text-3xl">👥</p>
-            <p className="mt-3 text-sm text-zinc-500">Znajomi już wkrótce.</p>
-            <p className="mt-1 text-xs text-zinc-600">Ta funkcja jest w przygotowaniu.</p>
+          <div className="space-y-5 pb-4">
+
+            {/* Obserwowani */}
+            <div>
+              <h3 className="mb-3 text-sm font-semibold text-zinc-300">
+                Znajomi ({localFollowing.length})
+              </h3>
+
+              {localFollowing.length === 0 ? (
+                <div className="rounded-2xl bg-white/5 px-4 py-8 text-center">
+                  <p className="text-2xl">👥</p>
+                  <p className="mt-2 text-sm text-zinc-500">Nie obserwujesz jeszcze nikogo.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {localFollowing.map((user) => {
+                    const name = user.full_name ?? "Użytkownik";
+                    const handle = "@" + name.toLowerCase().replace(/\s+/g, ".").replace(/[^a-z0-9.]/g, "");
+                    const uInitials = name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
+                    return (
+                      <div key={user.id} className="flex items-center gap-3 rounded-2xl bg-white/5 p-3">
+                        {/* Avatar */}
+                        <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full">
+                          {user.avatar_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={user.avatar_url} alt="" className="h-full w-full object-cover" />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-700 text-xs font-bold">
+                              {uInitials}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Name */}
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold text-white">{name}</p>
+                          <p className="truncate text-xs text-zinc-500">{handle}</p>
+                        </div>
+
+                        {/* Unfollow */}
+                        <button
+                          type="button"
+                          onClick={() => handleUnfollow(user.id)}
+                          disabled={unfollowingUserId === user.id}
+                          className="shrink-0 rounded-full p-1.5 text-zinc-600 transition-colors hover:text-zinc-300 disabled:opacity-40"
+                          title="Przestań obserwować"
+                        >
+                          {unfollowingUserId === user.id ? (
+                            <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                            </svg>
+                          ) : (
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4">
+                              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+                              <circle cx="9" cy="7" r="4"/>
+                              <line x1="22" y1="11" x2="16" y2="11"/>
+                            </svg>
+                          )}
+                        </button>
+
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4 shrink-0 text-zinc-600">
+                          <polyline points="9 18 15 12 9 6"/>
+                        </svg>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Możesz znać */}
+            {localSuggestions.length > 0 && (
+              <div>
+                <h3 className="mb-3 text-sm font-semibold text-zinc-300">Możesz znać</h3>
+                <div className="space-y-2">
+                  {localSuggestions.map((user) => {
+                    const name = user.full_name ?? "Użytkownik";
+                    const uInitials = name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
+                    return (
+                      <div key={user.id} className="flex items-center gap-3 rounded-2xl bg-white/5 p-3">
+                        {/* Avatar */}
+                        <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full">
+                          {user.avatar_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={user.avatar_url} alt="" className="h-full w-full object-cover" />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br from-violet-600 to-purple-700 text-xs font-bold">
+                              {uInitials}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Name + mutual */}
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold text-white">{name}</p>
+                          {user.mutual_count > 0 ? (
+                            <p className="truncate text-xs text-zinc-500">{user.mutual_count} wspólnych znajomych</p>
+                          ) : (
+                            <p className="truncate text-xs text-zinc-600">Użytkownik IKU</p>
+                          )}
+                        </div>
+
+                        {/* Follow button */}
+                        <button
+                          type="button"
+                          onClick={() => handleFollow(user)}
+                          disabled={addingUserId === user.id}
+                          className="flex shrink-0 items-center gap-1.5 rounded-full bg-blue-500 px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:bg-blue-600 disabled:opacity-50"
+                        >
+                          {addingUserId === user.id ? (
+                            <svg className="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                            </svg>
+                          ) : (
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5">
+                              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+                              <circle cx="9" cy="7" r="4"/>
+                              <line x1="19" y1="8" x2="19" y2="14"/>
+                              <line x1="22" y1="11" x2="16" y2="11"/>
+                            </svg>
+                          )}
+                          Dodaj
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {localSuggestions.length === 0 && localFollowing.length > 0 && (
+              <p className="text-center text-xs text-zinc-700">Brak nowych sugestii znajomych.</p>
+            )}
           </div>
         )}
       </main>
