@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { getSessionProfile } from "@/lib/auth/get-session-profile";
 import { getUserEventsByStatus } from "@/lib/profile/get-user-events";
 import { getFollowCounts } from "@/lib/profile/get-follow-counts";
-import { getUserBadges } from "@/lib/profile/badges";
+import { getAllBadgesWithProgress } from "@/lib/profile/badges";
 import { getUserPosts } from "@/app/profile/wall-actions";
 import { ProfilePage } from "@/components/profile/profile-page";
 
@@ -19,11 +19,11 @@ export default async function Profile() {
   const { checkAndAwardBadges } = await import("@/lib/profile/badges");
   await checkAndAwardBadges(user.id).catch(() => {});
 
-  const [goingEvents, savedEvents, followCounts, badges, posts] = await Promise.all([
+  const [goingEvents, savedEvents, followCounts, badgesWithProgress, posts] = await Promise.all([
     getUserEventsByStatus(user.id, "going"),
     getUserEventsByStatus(user.id, "saved"),
     getFollowCounts(user.id).catch(() => ({ followers: 0, following: 0 })),
-    getUserBadges(user.id).catch(() => []),
+    getAllBadgesWithProgress(user.id).catch(() => []),
     getUserPosts(user.id).catch(() => []),
   ]);
 
@@ -38,7 +38,7 @@ export default async function Profile() {
       savedEvents={savedEvents}
       followers={followCounts.followers}
       following={followCounts.following}
-      badges={badges}
+      badgesWithProgress={badgesWithProgress}
       posts={posts}
     />
   );

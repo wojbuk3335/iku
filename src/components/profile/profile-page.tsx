@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { BottomNav } from "@/components/events/bottom-nav";
 import { updateBio, updateAvatarUrl, updateFullName } from "@/app/profile/actions";
 import { createPost, toggleReaction, getPostComments, createComment } from "@/app/profile/wall-actions";
 import type { Event } from "@/types/event";
-import type { Badge } from "@/lib/profile/badges";
+import type { BadgeWithProgress } from "@/lib/profile/badges";
 import type { Post, Comment } from "@/app/profile/wall-actions";
 
 type ProfilePageProps = {
@@ -20,7 +20,7 @@ type ProfilePageProps = {
   savedEvents: Event[];
   followers: number;
   following: number;
-  badges: Badge[];
+  badgesWithProgress: BadgeWithProgress[];
   posts: Post[];
 };
 
@@ -50,7 +50,79 @@ function getAvatarColor(email: string): string {
 
 type Tab = "wall" | "badges" | "znajomi" | "historia";
 
-export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEvents, savedEvents, followers, following, badges, posts }: ProfilePageProps) {
+function rarityColor(rarity: string): string {
+  switch (rarity) {
+    case "Rzadka":     return "#3b82f6";
+    case "Epicka":     return "#a855f7";
+    case "Legendarna": return "#f59e0b";
+    default:           return "#71717a";
+  }
+}
+
+function rarityGradient(rarity: string): string {
+  switch (rarity) {
+    case "Rzadka":     return "linear-gradient(135deg, #0891b2, #1d4ed8)";
+    case "Epicka":     return "linear-gradient(135deg, #7c3aed, #db2777)";
+    case "Legendarna": return "linear-gradient(135deg, #d97706, #ea580c)";
+    default:           return "linear-gradient(135deg, #2563eb, #4f46e5)";
+  }
+}
+
+function BadgeProgressBar({ current, max, dim = false }: { current: number; max: number; dim?: boolean }) {
+  const [width, setWidth] = useState(0);
+  const targetWidth = max > 0 ? Math.min(100, (current / max) * 100) : 0;
+
+  useEffect(() => {
+    const t = setTimeout(() => setWidth(targetWidth), 80);
+    return () => clearTimeout(t);
+  }, [targetWidth]);
+
+  return (
+    <div className="h-1 w-full overflow-hidden rounded-full bg-white/10">
+      <div
+        className="h-1 rounded-full transition-[width] duration-700 ease-out"
+        style={{
+          width: `${width}%`,
+          background: dim ? "rgba(59,130,246,0.45)" : "#3b82f6",
+        }}
+      />
+    </div>
+  );
+}
+
+function BadgeIcon({ id, size = 20, color = "currentColor" }: { id: string; size?: number; color?: string }) {
+  const p = { xmlns: "http://www.w3.org/2000/svg", viewBox: "0 0 24 24", fill: "none" as const, stroke: color, strokeWidth: 1.5, width: size, height: size };
+  switch (id) {
+    case "first_event":
+      return <svg {...p}><path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.52 4.674a1 1 0 00.95.69h4.915c.97 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118L2.98 10.1c-.783-.57-.38-1.81.588-1.81h4.914a1 1 0 00.95-.69l1.52-4.674z" strokeLinejoin="round"/></svg>;
+    case "early_bird":
+      return <svg {...p}><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="6.34" y2="6.34"/><line x1="17.66" y1="17.66" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="6.34" y2="17.66"/><line x1="17.66" y1="6.34" x2="19.07" y2="4.93"/></svg>;
+    case "collector":
+      return <svg {...p}><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" strokeLinejoin="round"/></svg>;
+    case "active":
+      return <svg {...p}><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>;
+    case "regular_participant":
+      return <svg {...p}><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>;
+    case "event_veteran":
+      return <svg {...p}><path d="M8 21h8m-4-4v-5"/><path d="M4 7h16v5a8 8 0 0 1-16 0V7z"/><line x1="4" y1="7" x2="4" y2="4"/><line x1="20" y1="7" x2="20" y2="4"/><line x1="4" y1="4" x2="20" y2="4"/></svg>;
+    case "community_ambassador":
+      return <svg {...p}><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" strokeLinejoin="round"/></svg>;
+    case "trendsetter":
+      return <svg {...p}><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" strokeLinejoin="round"/></svg>;
+    case "night_player":
+      return <svg {...p}><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" strokeLinejoin="round"/></svg>;
+    case "explorer":
+      return <svg {...p}><circle cx="12" cy="12" r="10"/><path d="M16.24 7.76l-2.12 6.36-6.36 2.12 2.12-6.36 6.36-2.12z" strokeLinejoin="round"/></svg>;
+    case "weekend_explorer":
+      return <svg {...p}><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" strokeLinejoin="round"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>;
+    case "top_participant":
+      return <svg {...p}><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11" strokeLinejoin="round"/></svg>;
+    default:
+      return <svg {...p}><circle cx="12" cy="12" r="10"/></svg>;
+  }
+}
+
+export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEvents, savedEvents, followers, following, badgesWithProgress, posts }: ProfilePageProps) {
   const [activeTab, setActiveTab] = useState<Tab>("wall");
   const [signingOut, setSigningOut] = useState(false);
   const [editingBio, setEditingBio] = useState(false);
@@ -440,10 +512,10 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
         )}
       </div>
 
-      {/* Badges */}
-      {badges.length > 0 && (
+      {/* Badges — unlocked chips in profile header */}
+      {badgesWithProgress.filter((b) => b.unlocked).length > 0 && (
         <div className="mt-3 flex flex-wrap justify-center gap-2 px-4">
-          {badges.map((badge) => (
+          {badgesWithProgress.filter((b) => b.unlocked).map((badge) => (
             <div
               key={badge.id}
               title={badge.description}
@@ -820,21 +892,114 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
 
         {/* Odznaki */}
         {activeTab === "badges" && (
-          <div>
-            {badges.length === 0 ? (
-              <div className="py-10 text-center">
-                <p className="text-3xl">🏅</p>
-                <p className="mt-3 text-sm text-zinc-500">Brak odznak. Kliknij „Idę" na wydarzeniu!</p>
+          <div className="space-y-5 pb-4">
+
+            {/* Utwórz własną odznakę */}
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-2xl bg-white/5 px-4 py-3 text-sm text-zinc-400 transition-colors hover:bg-white/10"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="16" height="16">
+                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              Utwórz własną odznakę
+            </button>
+
+            {/* Postęp globalny */}
+            <div>
+              <div className="mb-3 flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#71717a" strokeWidth="1.5" width="15" height="15">
+                  <circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11" strokeLinejoin="round"/>
+                </svg>
+                <span className="text-sm font-semibold text-zinc-300">Postęp globalny</span>
               </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-3">
-                {badges.map((badge) => (
-                  <div key={badge.id} className="flex flex-col items-center gap-2 rounded-2xl bg-white/5 p-4 text-center">
-                    <span className="text-3xl">{badge.emoji}</span>
-                    <span className="text-sm font-semibold">{badge.label}</span>
-                    <span className="text-xs text-zinc-500">{badge.description}</span>
+
+              <div className="space-y-2">
+                {badgesWithProgress.map((badge) => (
+                  <div key={badge.id} className="rounded-2xl bg-white/5 p-3">
+                    <div className="flex items-start gap-3">
+                      {/* Icon */}
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/5">
+                        <BadgeIcon id={badge.id} size={18} color={badge.unlocked ? rarityColor(badge.rarity) : "#52525b"} />
+                      </div>
+
+                      {/* Info */}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-semibold text-white">{badge.label}</span>
+                          <span className="shrink-0 text-xs font-medium" style={{ color: rarityColor(badge.rarity) }}>
+                            {badge.rarity}
+                          </span>
+                        </div>
+                        <p className="text-xs text-zinc-500">{badge.description}</p>
+
+                        {badge.unlocked ? (
+                          <p className="mt-1.5 text-xs font-medium text-emerald-500">Odblokowana ✓</p>
+                        ) : (
+                          <div className="mt-2 space-y-1">
+                            <BadgeProgressBar current={badge.current} max={badge.max} />
+                            <p className="text-xs text-zinc-600">{badge.current}/{badge.max}</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 ))}
+              </div>
+            </div>
+
+            {/* Odblokowane */}
+            {badgesWithProgress.filter((b) => b.unlocked).length > 0 && (
+              <div>
+                <h3 className="mb-3 text-sm font-semibold text-zinc-300">
+                  Odblokowane ({badgesWithProgress.filter((b) => b.unlocked).length})
+                </h3>
+                <div className="grid grid-cols-3 gap-2">
+                  {badgesWithProgress.filter((b) => b.unlocked).map((badge) => (
+                    <div key={badge.id} className="flex flex-col items-center gap-1.5 text-center">
+                      <div
+                        className="relative flex h-[72px] w-[72px] items-center justify-center rounded-2xl"
+                        style={{ background: rarityGradient(badge.rarity) }}
+                      >
+                        <span
+                          className="absolute right-2 top-2 h-2 w-2 rounded-full bg-blue-400"
+                          style={{ boxShadow: "0 0 6px #60a5fa" }}
+                        />
+                        <BadgeIcon id={badge.id} size={30} color="white" />
+                      </div>
+                      <span className="w-full truncate text-center text-[11px] font-medium leading-tight text-zinc-300">
+                        {badge.label}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Do zdobycia */}
+            {badgesWithProgress.filter((b) => !b.unlocked).length > 0 && (
+              <div>
+                <h3 className="mb-3 text-sm font-semibold text-zinc-300">
+                  Do zdobycia ({badgesWithProgress.filter((b) => !b.unlocked).length})
+                </h3>
+                <div className="grid grid-cols-3 gap-2">
+                  {badgesWithProgress.filter((b) => !b.unlocked).map((badge) => (
+                    <div key={badge.id} className="flex flex-col items-center gap-1.5 text-center">
+                      <div className="flex h-[72px] w-[72px] items-center justify-center rounded-2xl bg-white/5">
+                        <BadgeIcon id={badge.id} size={26} color="#52525b" />
+                      </div>
+                      <span className="w-full truncate text-center text-[11px] leading-tight text-zinc-600">
+                        {badge.label}
+                      </span>
+                      {badge.max > 1 && (
+                        <div className="w-full space-y-0.5 px-1">
+                          <BadgeProgressBar current={badge.current} max={badge.max} dim />
+                          <p className="text-[10px] text-zinc-700">{badge.current}/{badge.max}</p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
