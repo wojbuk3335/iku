@@ -56,14 +56,14 @@ function MapIcon() {
   );
 }
 
-function BellIcon() {
+function BellIcon({ active }: { active?: boolean }) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
       viewBox="0 0 24 24"
-      fill="none"
+      fill={active ? "currentColor" : "none"}
       stroke="currentColor"
-      strokeWidth="1.8"
+      strokeWidth={active ? "0" : "1.8"}
       className="h-6 w-6"
       aria-hidden
     >
@@ -127,13 +127,15 @@ export function BottomNav({ activePage = "home" }: { activePage?: ActivePage }) 
           <MapIcon />
         </button>
 
-        {/* Notifications — placeholder */}
-        <button
-          type="button"
-          className="flex min-w-14 flex-col items-center gap-1 text-zinc-500"
+        {/* Notifications */}
+        <Link
+          href="/notifications"
+          className={`relative flex min-w-14 flex-col items-center gap-1 ${activePage === "notifications" ? activeClass : inactiveClass}`}
+          aria-current={activePage === "notifications" ? "page" : undefined}
         >
-          <BellIcon />
-        </button>
+          <BellIcon active={activePage === "notifications"} />
+          <span className="text-[11px] font-medium">Powiadomienia</span>
+        </Link>
 
         {/* Profile */}
         <Link
