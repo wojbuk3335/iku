@@ -4,6 +4,14 @@ import Link from "next/link";
 
 export type ActivePage = "home" | "explore" | "map" | "notifications" | "profile";
 
+function MapIconActive() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-6 w-6" aria-hidden>
+      <path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z" />
+    </svg>
+  );
+}
+
 function HomeIcon({ active }: { active?: boolean }) {
   return (
     <svg
@@ -119,13 +127,15 @@ export function BottomNav({ activePage = "home" }: { activePage?: ActivePage }) 
           <span className="text-[11px] font-medium">Odkryj</span>
         </Link>
 
-        {/* Map — placeholder */}
-        <button
-          type="button"
-          className="flex min-w-14 flex-col items-center gap-1 text-zinc-500"
+        {/* Map */}
+        <Link
+          href="/map"
+          className={`flex min-w-14 flex-col items-center gap-1 ${activePage === "map" ? activeClass : inactiveClass}`}
+          aria-current={activePage === "map" ? "page" : undefined}
         >
-          <MapIcon />
-        </button>
+          {activePage === "map" ? <MapIconActive /> : <MapIcon />}
+          <span className="text-[11px] font-medium">Mapa</span>
+        </Link>
 
         {/* Notifications */}
         <Link
