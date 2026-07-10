@@ -4,7 +4,7 @@ import { getProfileAuthContext } from "@/lib/auth/get-profile-auth";
 import { getPostLoginPath } from "@/lib/auth/paths";
 import type { UserRole } from "@/types/profile";
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
   // OAuth czasem wraca z ?code= na / zamiast /auth/callback
