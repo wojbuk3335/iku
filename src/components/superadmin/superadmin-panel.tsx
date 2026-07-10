@@ -94,7 +94,7 @@ export function SuperAdminPanel({
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id)}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium transition-colors"
+              className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium transition-colors"
               style={{
                 background: activeTab === tab.id ? "rgba(124,58,237,0.3)" : "transparent",
                 color:      activeTab === tab.id ? "white" : "#71717a",
