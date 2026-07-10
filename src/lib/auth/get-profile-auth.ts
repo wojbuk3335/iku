@@ -7,7 +7,7 @@ export async function getProfileAuthContext(
 ): Promise<{ role: UserRole; onboardingCompleted: boolean; isBlocked: boolean }> {
   const { data: profile } = await supabase
     .from("profiles")
-    .select("role, onboarding_completed, is_blocked")
+    .select("*")
     .eq("id", userId)
     .single();
 
