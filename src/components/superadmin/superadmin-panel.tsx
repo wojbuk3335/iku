@@ -6,6 +6,7 @@ import type { AdminUser } from "@/app/superadmin/page";
 
 type Tab = "users" | "creators" | "admins";
 
+
 const TABS: { id: Tab; label: string; role: string }[] = [
   { id: "users",    label: "Użytkownicy",    role: "user" },
   { id: "creators", label: "Twórcy",         role: "creator" },
@@ -54,9 +55,19 @@ export function SuperAdminPanel({
   currentUserId: string;
 }) {
   const [activeTab, setActiveTab] = useState<Tab>("users");
+  const [query, setQuery]         = useState("");
 
   const activeRole = TABS.find((t) => t.id === activeTab)!.role;
-  const filtered   = users.filter((u) => u.role === activeRole);
+  const filtered   = users
+    .filter((u) => u.role === activeRole)
+    .filter((u) => {
+      if (!query.trim()) return true;
+      const q = query.toLowerCase();
+      return (
+        (u.full_name ?? "").toLowerCase().includes(q) ||
+        u.id.toLowerCase().includes(q)
+      );
+    });
 
   const counts = {
     users:    users.filter((u) => u.role === "user").length,
@@ -93,7 +104,7 @@ export function SuperAdminPanel({
             <button
               key={tab.id}
               type="button"
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => { setActiveTab(tab.id); setQuery(""); }}
               className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium transition-colors"
               style={{
                 background: activeTab === tab.id ? "rgba(124,58,237,0.3)" : "transparent",
@@ -112,6 +123,27 @@ export function SuperAdminPanel({
               </span>
             </button>
           ))}
+        </div>
+
+        {/* ── Search ── */}
+        <div className="mb-4 flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#52525b" strokeWidth="1.8" className="h-4 w-4 shrink-0">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Szukaj po nazwie lub ID…"
+            className="flex-1 bg-transparent text-sm text-white placeholder-zinc-600 outline-none"
+          />
+          {query && (
+            <button type="button" onClick={() => setQuery("")} className="text-zinc-600 hover:text-zinc-400 transition-colors">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5">
+                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+          )}
         </div>
 
         {/* ── List ── */}
