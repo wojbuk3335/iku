@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSessionProfile } from "@/lib/auth/get-session-profile";
 import { createClient } from "@/lib/supabase/server";
+import { SignOutButton } from "@/components/auth/sign-out-button";
 
 export const dynamic = "force-dynamic";
 
@@ -52,14 +53,7 @@ export default async function SuperAdminPage() {
             <span className="rounded-full bg-violet-500/20 px-3 py-1 text-xs font-medium text-violet-400">
               {profile?.full_name ?? profile?.email ?? "Admin"}
             </span>
-            <form action="/auth/signout" method="post">
-              <button
-                type="submit"
-                className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-zinc-400 hover:border-white/20 hover:text-white transition-colors"
-              >
-                Wyloguj
-              </button>
-            </form>
+            <SignOutButton className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-zinc-400 hover:border-white/20 hover:text-white transition-colors" />
           </div>
         </div>
       </header>
