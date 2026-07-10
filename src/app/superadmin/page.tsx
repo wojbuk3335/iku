@@ -11,13 +11,15 @@ export type AdminUser = {
   avatar_url: string | null;
   role: string;
   created_at: string;
+  is_blocked: boolean;
+  blocked_reason: string | null;
 };
 
 async function getAllUsers(): Promise<AdminUser[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, full_name, avatar_url, role, created_at")
+    .select("id, full_name, avatar_url, role, created_at, is_blocked, blocked_reason")
     .order("created_at", { ascending: false });
 
   if (error) {

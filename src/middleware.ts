@@ -43,11 +43,13 @@ export async function middleware(request: NextRequest) {
 
   let role: UserRole | null = null;
   let onboardingCompleted = false;
+  let isBlocked = false;
 
   if (user) {
     const authContext = await getProfileAuthContext(supabase, user.id);
     role = authContext.role;
     onboardingCompleted = authContext.onboardingCompleted;
+    isBlocked = authContext.isBlocked;
   }
 
   const isAuthFlow        = pathname.startsWith("/auth/");
@@ -56,9 +58,20 @@ export async function middleware(request: NextRequest) {
   const isAdminRoute      = pathname.startsWith("/admin");
   const isSuperAdminRoute = pathname.startsWith("/superadmin");
   const isEventsRoute     = pathname.startsWith("/events");
+  const isBlockedPage     = pathname === "/blocked";
 
   // Always allow auth callbacks
   if (isAuthFlow) return supabaseResponse;
+
+  // Blocked users → /blocked (except already there or logging out)
+  if (user && isBlocked && !isBlockedPage) {
+    return NextResponse.redirect(new URL("/blocked", request.url));
+  }
+
+  // Unblocked user on /blocked → send home
+  if (user && !isBlocked && isBlockedPage) {
+    return NextResponse.redirect(new URL("/", request.url));
+  }
 
   // Redirect unauthenticated users to login
   if (!user && (isAdminRoute || isSuperAdminRoute || isEventsRoute || isOnboardingRoute)) {
