@@ -14,9 +14,9 @@ export async function redirectAfterClientLogin(
     .single();
 
   const role = (profile?.role as UserRole | undefined) ?? "user";
-  let onboardingCompleted = role === "admin";
+  let onboardingCompleted = role === "admin" || role === "creator";
 
-  if (role !== "admin") {
+  if (role !== "admin" && role !== "creator") {
     const { data: onboardingProfile } = await supabase
       .from("profiles")
       .select("onboarding_completed")

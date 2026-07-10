@@ -14,7 +14,7 @@ export async function getProfileAuthContext(
 
   const role = (profile?.role as UserRole | undefined) ?? "user";
 
-  if (role === "admin") {
+  if (role === "admin" || role === "creator") {
     return { role, onboardingCompleted: true };
   }
 
