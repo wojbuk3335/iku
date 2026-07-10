@@ -9,7 +9,7 @@ export default async function AdminPage() {
     redirect("/");
   }
 
-  if (profile?.role !== "admin") {
+  if (profile?.role !== "admin" && profile?.role !== "creator") {
     redirect("/events");
   }
 

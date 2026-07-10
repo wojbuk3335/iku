@@ -5,6 +5,10 @@ export function getPostLoginPath(
   onboardingCompleted: boolean,
 ): string {
   if (role === "admin") {
+    return "/superadmin";
+  }
+
+  if (role === "creator") {
     return "/admin";
   }
 
