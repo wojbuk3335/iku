@@ -7,7 +7,7 @@ import type { UserRole } from "@/types/profile";
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
-  // OAuth czasem wraca z ?code= na / zamiast /auth/callback (np. zła Site URL w Supabase)
+  // OAuth czasem wraca z ?code= na / zamiast /auth/callback
   if (pathname === "/" && request.nextUrl.searchParams.has("code")) {
     const callbackUrl = new URL("/auth/callback", request.url);
     callbackUrl.search = request.nextUrl.search;
@@ -50,51 +50,64 @@ export async function middleware(request: NextRequest) {
     onboardingCompleted = authContext.onboardingCompleted;
   }
 
-  const isAuthFlow = pathname.startsWith("/auth/");
-  const isLoginPage = pathname === "/";
+  const isAuthFlow        = pathname.startsWith("/auth/");
+  const isLoginPage       = pathname === "/";
   const isOnboardingRoute = pathname.startsWith("/onboarding");
-  const isAdminRoute = pathname.startsWith("/admin");
-  const isEventsRoute = pathname.startsWith("/events");
+  const isAdminRoute      = pathname.startsWith("/admin");
+  const isSuperAdminRoute = pathname.startsWith("/superadmin");
+  const isEventsRoute     = pathname.startsWith("/events");
 
-  if (isAuthFlow) {
-    return supabaseResponse;
-  }
+  // Always allow auth callbacks
+  if (isAuthFlow) return supabaseResponse;
 
-  if (!user && (isAdminRoute || isEventsRoute || isOnboardingRoute)) {
+  // Redirect unauthenticated users to login
+  if (!user && (isAdminRoute || isSuperAdminRoute || isEventsRoute || isOnboardingRoute)) {
     return NextResponse.redirect(new URL("/", request.url));
   }
 
+  // Logged-in user on login page → send to their panel
   if (user && isLoginPage) {
     return NextResponse.redirect(
       new URL(getPostLoginPath(role ?? "user", onboardingCompleted), request.url),
     );
   }
 
+  // Onboarding: admin/creator skip it
   if (user && isOnboardingRoute) {
     if (role === "admin") {
+      return NextResponse.redirect(new URL("/superadmin", request.url));
+    }
+    if (role === "creator") {
       return NextResponse.redirect(new URL("/admin", request.url));
     }
-
     if (onboardingCompleted) {
       return NextResponse.redirect(new URL("/events", request.url));
     }
   }
 
-  if (user && role === "admin" && (isEventsRoute || isOnboardingRoute)) {
+  // /superadmin — only admin
+  if (user && isSuperAdminRoute && role !== "admin") {
+    return NextResponse.redirect(new URL(getPostLoginPath(role ?? "user", onboardingCompleted), request.url));
+  }
+
+  // /admin — only admin or creator
+  if (user && isAdminRoute && role !== "admin" && role !== "creator") {
+    return NextResponse.redirect(new URL("/events", request.url));
+  }
+
+  // admin role should not browse /events or /admin (creator panel) → go to /superadmin
+  if (user && role === "admin" && (isEventsRoute || isAdminRoute || isOnboardingRoute)) {
+    return NextResponse.redirect(new URL("/superadmin", request.url));
+  }
+
+  // creator role should not browse /events → go to /admin
+  if (user && role === "creator" && isEventsRoute) {
     return NextResponse.redirect(new URL("/admin", request.url));
   }
 
-  if (
-    user &&
-    isEventsRoute &&
-    role !== "admin" &&
-    !onboardingCompleted
-  ) {
+  // user without onboarding can't access /events
+  if (user && isEventsRoute && role === "user" && !onboardingCompleted) {
     return NextResponse.redirect(new URL("/onboarding", request.url));
-  }
-
-  if (user && isAdminRoute && role !== "admin") {
-    return NextResponse.redirect(new URL("/events", request.url));
   }
 
   return supabaseResponse;
