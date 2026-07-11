@@ -1,15 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { getRedirectPathAfterLogin } from "@/lib/auth/get-redirect-path";
+import { redirectAfterClientLogin } from "@/lib/auth/redirect-after-client-login";
 import { createClient } from "@/lib/supabase/client";
 
 const inputClassName =
   "w-full rounded-2xl border border-violet-500/20 bg-[#2a1845]/80 px-4 py-4 text-base text-white placeholder:text-violet-200/40 outline-none focus:border-violet-400/50";
 
 export function ResetPasswordForm() {
-  const router = useRouter();
   const supabase = createClient();
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -50,9 +48,7 @@ export function ResetPasswordForm() {
       return;
     }
 
-    const path = await getRedirectPathAfterLogin();
-    router.push(path);
-    router.refresh();
+    await redirectAfterClientLogin(supabase, user.id);
   }
 
   return (
