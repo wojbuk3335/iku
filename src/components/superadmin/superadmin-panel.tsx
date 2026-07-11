@@ -97,6 +97,8 @@ export function SuperAdminPanel({
   const [isPending, startTransition]  = useTransition();
   const [localUsers, setLocalUsers]   = useState(users);
 
+  const me = localUsers.find((u) => u.id === currentUserId);
+
   const activeRole = TABS.find((t) => t.id === activeTab)!.role;
   const filtered   = localUsers
     .filter((u) => u.role === activeRole)
@@ -137,6 +139,7 @@ export function SuperAdminPanel({
       {/* Header */}
       <header className="border-b border-white/10 bg-[#0a0a16] px-6 py-4">
         <div className="mx-auto flex max-w-4xl items-center justify-between">
+          {/* Logo */}
           <div className="flex items-center gap-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-600">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" className="h-4 w-4">
@@ -145,7 +148,27 @@ export function SuperAdminPanel({
             </div>
             <span className="text-sm font-bold">IKU Admin</span>
           </div>
-          <SignOutButton className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-zinc-400 hover:border-white/20 hover:text-white transition-colors" />
+
+          {/* Logged-in user + sign out */}
+          <div className="flex items-center gap-3">
+            {me && (
+              <div className="flex items-center gap-2.5">
+                {me.avatar_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={me.avatar_url} alt="" className="h-7 w-7 rounded-full object-cover ring-2 ring-violet-500/40" />
+                ) : (
+                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-violet-600 text-[10px] font-bold text-white ring-2 ring-violet-500/40">
+                    {(me.full_name ?? "A").split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()}
+                  </div>
+                )}
+                <div className="hidden sm:block">
+                  <p className="text-xs font-medium text-white leading-none">{me.full_name ?? "Admin"}</p>
+                  <p className="mt-0.5 text-[10px] text-violet-400 leading-none">Administrator</p>
+                </div>
+              </div>
+            )}
+            <SignOutButton className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-zinc-400 hover:border-white/20 hover:text-white transition-colors" />
+          </div>
         </div>
       </header>
 
