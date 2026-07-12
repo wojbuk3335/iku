@@ -13,5 +13,5 @@ export default async function AdminPage() {
     redirect("/events");
   }
 
-  return <CreateEventForm />;
+  return <CreateEventForm userEmail={user.email ?? null} />;
 }
