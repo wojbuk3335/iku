@@ -18,7 +18,10 @@ export function loadGoogleMaps(): Promise<void> {
       region: "PL",
     });
 
-    loadPromise = importLibrary("places").then(() => undefined);
+    loadPromise = Promise.all([
+      importLibrary("maps"),
+      importLibrary("places"),
+    ]).then(() => undefined);
   }
 
   return loadPromise;

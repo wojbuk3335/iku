@@ -42,7 +42,7 @@ export function MapView({ events }: { events: MapEvent[] }) {
             </div>
             <p className="text-sm font-medium text-zinc-300">Brak wydarzeń z lokalizacją</p>
             <p className="text-xs text-zinc-500 leading-relaxed">
-              Uruchom migrację 021 w Supabase SQL Editor, aby dodać współrzędne do istniejących wydarzeń.
+              Utwórz wydarzenie i wybierz lokalizację z listy Google Places — wtedy pojawi się pinezka na mapie.
             </p>
           </div>
         ) : (
