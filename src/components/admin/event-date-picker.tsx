@@ -63,6 +63,14 @@ export function EventDatePicker({
   const isoValue = selectedDate ? toIsoDate(selectedDate) : "";
 
   useEffect(() => {
+    if (value) {
+      const next = new Date(`${value}T12:00:00`);
+      setSelectedDate(next);
+      setViewMonth(new Date(next.getFullYear(), next.getMonth(), 1));
+    }
+  }, [value]);
+
+  useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
         containerRef.current &&

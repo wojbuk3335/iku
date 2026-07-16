@@ -4,7 +4,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { createEvent } from "@/app/events/actions";
+import { LocationPicker } from "@/components/events/location-picker";
 import { INTEREST_CATEGORIES } from "@/types/interests";
+import type { EventLocation } from "@/types/location";
 import type { EventCategory } from "@/types/event";
 
 export function CreateEventForm() {
@@ -12,10 +14,12 @@ export function CreateEventForm() {
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [category, setCategory] = useState<EventCategory | "">("");
+  const [categories, setCategories] = useState<EventCategory[]>([]);
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
-  const [location, setLocation] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [endTime, setEndTime] = useState("");
+  const [selectedLocation, setSelectedLocation] = useState<EventLocation | null>(null);
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [coverPreview, setCoverPreview] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -28,11 +32,32 @@ export function CreateEventForm() {
     setCoverPreview(URL.createObjectURL(file));
   }
 
+  function toggleCategory(id: EventCategory) {
+    setCategories((prev) => {
+      if (prev.includes(id)) return prev.filter((c) => c !== id);
+      if (prev.length >= 2) return prev;
+      return [...prev, id];
+    });
+  }
+
   async function handleSubmit() {
-    if (!title.trim() || !category || !date || !time || !location.trim()) {
-      setError("Wypełnij wszystkie wymagane pola.");
+    if (!title.trim() || categories.length === 0 || !date || !time || !endDate || !endTime) {
+      setError("Wypełnij wszystkie wymagane pola i wybierz 1–2 kategorie.");
       return;
     }
+
+    if (!selectedLocation) {
+      setError("Wybierz lokalizację z listy podpowiedzi Google.");
+      return;
+    }
+
+    const startsAt = new Date(`${date}T${time}:00`);
+    const endsAt = new Date(`${endDate}T${endTime}:00`);
+    if (endsAt <= startsAt) {
+      setError("Zakończenie musi być późniejsze niż rozpoczęcie.");
+      return;
+    }
+
     setError(null);
     setSubmitting(true);
 
@@ -57,13 +82,20 @@ export function CreateEventForm() {
         }
       }
 
-      const starts_at = new Date(`${date}T${time}:00`).toISOString();
+      const starts_at = startsAt.toISOString();
+      const ends_at = endsAt.toISOString();
       const eventId = await createEvent({
         title: title.trim(),
         description: description.trim() || undefined,
-        category: category as EventCategory,
+        category: categories[0],
+        categories,
         starts_at,
-        location: location.trim(),
+        ends_at,
+        location: selectedLocation.location,
+        location_name: selectedLocation.location_name ?? undefined,
+        place_id: selectedLocation.place_id ?? undefined,
+        latitude: selectedLocation.latitude,
+        longitude: selectedLocation.longitude,
         cover_url,
       });
 
@@ -75,10 +107,10 @@ export function CreateEventForm() {
     }
   }
 
-  const isValid = title.trim() && category && date && time && location.trim();
+  const isValid = title.trim() && categories.length > 0 && date && time && endDate && endTime && selectedLocation;
 
   return (
-    <div className="mx-auto min-h-dvh max-w-lg bg-[#080810] pb-10 text-white">
+    <div className="mx-auto min-h-dvh max-w-2xl bg-[#080810] pb-10 text-white">
       {/* Header */}
       <header className="flex items-center px-4 pb-2 pt-5">
         <button
@@ -151,21 +183,32 @@ export function CreateEventForm() {
 
         {/* Category */}
         <div>
-          <label className="mb-2 block text-xs font-medium text-zinc-400">Category</label>
+          <div className="mb-2 flex items-center justify-between">
+            <label className="text-xs font-medium text-zinc-400">Category</label>
+            <span className="text-xs text-zinc-600">{categories.length}/2</span>
+          </div>
+          <p className="mb-2 text-xs text-zinc-600">Wybierz 1 lub 2 kategorie</p>
           <div className="grid grid-cols-3 gap-2">
             {INTEREST_CATEGORIES.map((cat) => {
-              const isSelected = category === cat.id;
+              const isSelected = categories.includes(cat.id);
+              const isDisabled = !isSelected && categories.length >= 2;
               return (
                 <button
                   key={cat.id}
                   type="button"
-                  onClick={() => setCategory(cat.id as EventCategory)}
-                  className="flex flex-col items-center gap-1.5 rounded-2xl border py-3 transition-colors"
+                  onClick={() => toggleCategory(cat.id)}
+                  disabled={isDisabled}
+                  className="relative flex flex-col items-center gap-1.5 rounded-2xl border py-3 transition-colors disabled:opacity-40"
                   style={{
                     borderColor: isSelected ? "#3b82f6" : "rgba(255,255,255,0.08)",
                     background: isSelected ? "rgba(59,130,246,0.15)" : "rgba(255,255,255,0.04)",
                   }}
                 >
+                  {isSelected && (
+                    <span className="absolute right-2 top-2 flex h-4 w-4 items-center justify-center rounded-full bg-blue-500 text-[9px] font-bold text-white">
+                      {categories.indexOf(cat.id) + 1}
+                    </span>
+                  )}
                   <span className="text-2xl">{cat.emoji}</span>
                   <span className="text-xs text-zinc-300">{cat.label}</span>
                 </button>
@@ -174,19 +217,19 @@ export function CreateEventForm() {
           </div>
         </div>
 
-        {/* Date + Time */}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-zinc-400">Date</label>
+        {/* Schedule */}
+        <div>
+          <label className="mb-1.5 block text-xs font-medium text-zinc-400">Termin wydarzenia</label>
+          <p className="mb-3 text-xs text-zinc-600">Od kiedy do kiedy trwa wydarzenie.</p>
+
+          <p className="mb-1.5 text-xs font-medium text-zinc-500">Od</p>
+          <div className="mb-3 grid grid-cols-2 gap-3">
             <input
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
               className="w-full rounded-xl border border-zinc-800 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-blue-500 transition-colors [color-scheme:dark]"
             />
-          </div>
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-zinc-400">Time</label>
             <input
               type="time"
               value={time}
@@ -194,24 +237,33 @@ export function CreateEventForm() {
               className="w-full rounded-xl border border-zinc-800 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-blue-500 transition-colors [color-scheme:dark]"
             />
           </div>
+
+          <p className="mb-1.5 text-xs font-medium text-zinc-500">Do</p>
+          <div className="grid grid-cols-2 gap-3">
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="w-full rounded-xl border border-zinc-800 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-blue-500 transition-colors [color-scheme:dark]"
+            />
+            <input
+              type="time"
+              value={endTime}
+              onChange={(e) => setEndTime(e.target.value)}
+              className="w-full rounded-xl border border-zinc-800 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-blue-500 transition-colors [color-scheme:dark]"
+            />
+          </div>
         </div>
 
         {/* Location */}
         <div>
-          <label className="mb-1.5 block text-xs font-medium text-zinc-400">Location</label>
-          <div className="flex items-center gap-2 rounded-xl border border-zinc-800 bg-white/5 px-4 py-3">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4 shrink-0 text-zinc-500">
-              <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
-            </svg>
-            <input
-              type="text"
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              placeholder="Brooklyn Warehouse"
-              maxLength={200}
-              className="flex-1 bg-transparent text-sm text-white placeholder-zinc-600 outline-none"
-            />
-          </div>
+          <label className="mb-1.5 block text-xs font-medium text-zinc-400">Lokalizacja</label>
+          <LocationPicker
+            value={selectedLocation}
+            onChange={setSelectedLocation}
+            disabled={submitting}
+            variant="compact"
+          />
         </div>
 
         {/* Error */}

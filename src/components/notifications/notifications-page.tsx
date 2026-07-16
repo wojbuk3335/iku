@@ -107,7 +107,7 @@ export function NotificationsPage({ notifications: initial }: { notifications: N
   }
 
   return (
-    <div className="mx-auto min-h-dvh max-w-lg bg-[#080810] pb-24 text-white">
+    <div className="mx-auto min-h-dvh max-w-2xl bg-[#080810] pb-24 text-white">
       {/* Header */}
       <header className="flex items-center justify-between px-4 pb-2 pt-5">
         <h1 className="text-base font-semibold">Powiadomienia</h1>

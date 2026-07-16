@@ -1,4 +1,4 @@
-export function HomeHeader() {
+export function HomeHeader({ onSearchClick }: { onSearchClick?: () => void }) {
   return (
     <header className="sticky top-0 z-40 border-b border-white/5 bg-[#080810]/90 backdrop-blur-md">
       <div className="relative flex items-center justify-center px-4 py-4">
@@ -28,6 +28,7 @@ export function HomeHeader() {
           <button
             type="button"
             aria-label="Szukaj"
+            onClick={onSearchClick}
             className="rounded-full p-1 transition-colors hover:text-white"
           >
             <svg

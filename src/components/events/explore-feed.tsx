@@ -4,7 +4,8 @@ import { useState } from "react";
 import { BottomNav } from "@/components/events/bottom-nav";
 import { EventCard } from "@/components/events/event-card";
 import { INTEREST_CATEGORIES } from "@/types/interests";
-import type { Event } from "@/types/event";
+import { eventHasCategory } from "@/lib/events/category-style";
+import type { Event, EventCategory } from "@/types/event";
 
 type ExploreFeedProps = {
   events: Event[];
@@ -17,10 +18,10 @@ export function ExploreFeed({ events, goingCounts }: ExploreFeedProps) {
   const filtered =
     activeCategory === null
       ? events
-      : events.filter((e) => e.category === activeCategory);
+      : events.filter((e) => eventHasCategory(e, activeCategory as EventCategory));
 
   return (
-    <div className="mx-auto min-h-dvh max-w-lg bg-[#080810] pb-28 text-white">
+    <div className="mx-auto min-h-dvh max-w-2xl bg-[#080810] pb-28 text-white">
       {/* Header */}
       <header className="sticky top-0 z-40 bg-[#080810]/95 backdrop-blur-md">
         <div className="px-4 pb-3 pt-5">

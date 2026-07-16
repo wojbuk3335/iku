@@ -1,91 +1,54 @@
 "use client";
 
-import { useRef, useState, useTransition, useEffect } from "react";
-import { createEvent } from "@/app/admin/actions";
+import { useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { createEvent, updateEvent } from "@/app/admin/actions";
+import { AccountMenu } from "@/components/admin/account-menu";
 import { EventDatePicker } from "@/components/admin/event-date-picker";
-import { SignOutButton } from "@/components/auth/sign-out-button";
+import { LocationPicker } from "@/components/events/location-picker";
 import { uploadEventCover } from "@/lib/events/upload-event-cover";
+import { getEventCategories } from "@/lib/events/category-style";
 import { INTEREST_CATEGORIES } from "@/types/interests";
-import type { EventCategory } from "@/types/event";
+import { locationFromEvent } from "@/types/location";
+import type { EventLocation } from "@/types/location";
+import type { Event, EventCategory, EventRecurrence } from "@/types/event";
 
-// ─── Account settings dropdown ───────────────────────────────────────────────
-function AccountMenu({ userEmail }: { userEmail?: string | null }) {
-  const [open, setOpen] = useState(false);
+function splitDateTime(iso: string) {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return {
+    date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+    time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+  };
+}
 
-  useEffect(() => {
-    if (!open) return;
-    function close(e: MouseEvent) {
-      if (!(e.target as Element).closest("[data-account-menu]")) setOpen(false);
-    }
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [open]);
+function defaultEndFromStart(startIso: string) {
+  const end = new Date(startIso);
+  end.setHours(end.getHours() + 2);
+  return splitDateTime(end.toISOString());
+}
 
-  return (
-    <div className="relative flex shrink-0 items-center gap-2" data-account-menu="">
-      {/* Email */}
-      {userEmail && (
-        <p className="text-sm text-zinc-400">{userEmail}</p>
-      )}
+function getInitialSchedule(existing?: Event | null) {
+  if (!existing) {
+    return {
+      startDate: "",
+      startTime: "",
+      endDate: "",
+      endTime: "",
+    };
+  }
 
-      {/* Gear button */}
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="cursor-pointer rounded-full p-1.5 text-zinc-400 hover:bg-white/10 hover:text-white transition-colors"
-        title="Ustawienia konta"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
-          <circle cx="12" cy="12" r="3"/>
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-        </svg>
-      </button>
+  const start = splitDateTime(existing.starts_at);
+  const end = existing.ends_at
+    ? splitDateTime(existing.ends_at)
+    : defaultEndFromStart(existing.starts_at);
 
-      {/* Dropdown */}
-      {open && (
-        <div className="absolute right-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-2xl border border-white/10 bg-[#13111f] shadow-xl">
-          {/* Email header */}
-          {userEmail && (
-            <div className="border-b border-white/10 px-4 py-3">
-              <p className="text-xs text-zinc-500">Zalogowany jako</p>
-              <p className="mt-0.5 break-all text-sm font-medium text-white">{userEmail}</p>
-            </div>
-          )}
-
-          {/* Menu items */}
-          <div className="py-1.5">
-            <button
-              type="button"
-              onClick={() => { setOpen(false); window.location.href = "/admin/settings/profile"; }}
-              className="flex w-full cursor-pointer items-center gap-3 px-4 py-2.5 text-sm text-zinc-300 hover:bg-white/5 transition-colors"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4 text-zinc-500">
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-                <circle cx="12" cy="7" r="4"/>
-              </svg>
-              Edytuj profil
-            </button>
-
-            <button
-              type="button"
-              onClick={() => { setOpen(false); window.location.href = "/admin/settings/subscriptions"; }}
-              className="flex w-full cursor-pointer items-center gap-3 px-4 py-2.5 text-sm text-zinc-300 hover:bg-white/5 transition-colors"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4 text-zinc-500">
-                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
-              </svg>
-              Zarządzaj subskrypcjami
-            </button>
-          </div>
-
-          {/* Sign out */}
-          <div className="border-t border-white/10 px-3 py-2">
-            <SignOutButton className="w-full rounded-xl border border-red-500/20 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors" />
-          </div>
-        </div>
-      )}
-    </div>
-  );
+  return {
+    startDate: start.date,
+    startTime: start.time,
+    endDate: end.date,
+    endTime: end.time,
+  };
 }
 
 const fieldClassName =
@@ -111,29 +74,35 @@ function ImageIcon() {
   );
 }
 
-function PinIcon() {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      className="h-6 w-6 shrink-0 text-zinc-500"
-      aria-hidden
-    >
-      <path d="M12 21s7-4.5 7-11a7 7 0 1 0-14 0c0 6.5 7 11 7 11Z" />
-      <circle cx="12" cy="10" r="2.5" />
-    </svg>
-  );
-}
+export function CreateEventForm({
+  userEmail,
+  event,
+}: {
+  userEmail?: string | null;
+  event?: Event | null;
+}) {
+  const router = useRouter();
+  const isEdit = !!event;
+  const initialSchedule = getInitialSchedule(event);
 
-export function CreateEventForm({ userEmail }: { userEmail?: string | null }) {
   const formRef = useRef<HTMLFormElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [category, setCategory] = useState<EventCategory | null>(null);
+  const [categories, setCategories] = useState<EventCategory[]>(
+    event ? getEventCategories(event) : [],
+  );
+  const [recurrence, setRecurrence] = useState<EventRecurrence>(
+    event?.recurrence ?? "one_time",
+  );
+  const [startDate, setStartDate] = useState(initialSchedule.startDate);
+  const [startTime, setStartTime] = useState(initialSchedule.startTime);
+  const [endDate, setEndDate] = useState(initialSchedule.endDate);
+  const [endTime, setEndTime] = useState(initialSchedule.endTime);
+  const [selectedLocation, setSelectedLocation] = useState<EventLocation | null>(
+    event ? locationFromEvent(event) : null,
+  );
   const [coverFile, setCoverFile] = useState<File | null>(null);
-  const [coverPreview, setCoverPreview] = useState<string | null>(null);
+  const [coverPreview, setCoverPreview] = useState<string | null>(event?.cover_url ?? null);
+  const [coverRemoved, setCoverRemoved] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -150,64 +119,125 @@ export function CreateEventForm({ userEmail }: { userEmail?: string | null }) {
 
     setCoverFile(file);
     setCoverPreview(URL.createObjectURL(file));
+    setCoverRemoved(false);
   }
 
   function clearCover() {
     setCoverFile(null);
     setCoverPreview(null);
+    setCoverRemoved(true);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
   }
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  function toggleCategory(id: EventCategory) {
+    setCategories((prev) => {
+      if (prev.includes(id)) return prev.filter((c) => c !== id);
+      if (prev.length >= 2) return prev;
+      return [...prev, id];
+    });
+  }
+
+  function handleSubmit(formEvent: React.FormEvent<HTMLFormElement>) {
+    formEvent.preventDefault();
     setMessage(null);
     setError(null);
 
-    if (!category) {
-      setError("Wybierz kategorię.");
+    if (categories.length === 0) {
+      setError("Wybierz co najmniej jedną kategorię (maks. 2).");
       return;
     }
 
-    const formData = new FormData(event.currentTarget);
+    const formData = new FormData(formEvent.currentTarget);
     const title = String(formData.get("title") ?? "");
     const description = String(formData.get("description") ?? "");
-    const date = String(formData.get("date") ?? "");
-    const time = String(formData.get("time") ?? "");
-    const location = String(formData.get("location") ?? "");
+    const startDateValue = startDate || String(formData.get("startDate") ?? "");
+    const startTimeValue = startTime || String(formData.get("startTime") ?? "");
+    const endDateValue = endDate || String(formData.get("endDate") ?? "");
+    const endTimeValue = endTime || String(formData.get("endTime") ?? "");
 
-    if (!date || !time) {
-      setError("Podaj datę i godzinę.");
+    if (!startDateValue || !startTimeValue || !endDateValue || !endTimeValue) {
+      setError("Podaj datę i godzinę rozpoczęcia oraz zakończenia.");
       return;
     }
 
-    const startsAt = new Date(`${date}T${time}`).toISOString();
+    if (!selectedLocation) {
+      setError("Wybierz lokalizację z listy podpowiedzi Google.");
+      return;
+    }
+
+    const startsAt = new Date(`${startDateValue}T${startTimeValue}`);
+    const endsAt = new Date(`${endDateValue}T${endTimeValue}`);
+
+    if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime())) {
+      setError("Nieprawidłowa data lub godzina.");
+      return;
+    }
+
+    if (endsAt <= startsAt) {
+      setError("Zakończenie musi być późniejsze niż rozpoczęcie.");
+      return;
+    }
 
     startTransition(async () => {
       try {
-        let coverUrl: string | undefined;
+        let coverUrl: string | null | undefined = undefined;
 
         if (coverFile) {
           coverUrl = await uploadEventCover(coverFile);
+        } else if (coverRemoved) {
+          coverUrl = null;
+        }
+
+        const payload = {
+          title,
+          description: description || undefined,
+          category: categories[0],
+          categories,
+          recurrence,
+          starts_at: startsAt.toISOString(),
+          ends_at: endsAt.toISOString(),
+          location: selectedLocation.location,
+          location_name: selectedLocation.location_name ?? undefined,
+          place_id: selectedLocation.place_id ?? undefined,
+          latitude: selectedLocation.latitude,
+          longitude: selectedLocation.longitude,
+        };
+
+        if (isEdit && event) {
+          await updateEvent({
+            ...payload,
+            id: event.id,
+            cover_url: coverUrl,
+          });
+          router.push("/admin/events");
+          return;
         }
 
         const { id } = await createEvent({
-          title,
-          description: description || undefined,
-          category,
-          starts_at: startsAt,
-          location,
-          cover_url: coverUrl,
+          ...payload,
+          cover_url: typeof coverUrl === "string" ? coverUrl : undefined,
         });
 
         setMessage(`Wydarzenie utworzone (id: ${id.slice(0, 8)}…).`);
-        setCategory(null);
+        setCategories([]);
+        setRecurrence("one_time");
+        setStartDate("");
+        setStartTime("");
+        setEndDate("");
+        setEndTime("");
+        setSelectedLocation(null);
+        setCoverRemoved(false);
         clearCover();
         formRef.current?.reset();
       } catch (err) {
         setError(
-          err instanceof Error ? err.message : "Nie udało się utworzyć wydarzenia.",
+          err instanceof Error
+            ? err.message
+            : isEdit
+              ? "Nie udało się zapisać zmian."
+              : "Nie udało się utworzyć wydarzenia.",
         );
       }
     });
@@ -215,10 +245,10 @@ export function CreateEventForm({ userEmail }: { userEmail?: string | null }) {
 
   return (
     <div className="min-h-dvh w-full bg-[radial-gradient(ellipse_at_top,_#2a1845_0%,_#12101a_38%,_#080810_100%)] text-white">
-      <div className="mx-auto flex w-full max-w-2xl flex-col px-4 pb-14 pt-20 sm:px-6">
+      <div className="mx-auto flex w-full max-w-2xl flex-col px-4 pb-14 pt-8 sm:px-6">
         <div className="mb-10 flex items-start justify-between gap-4">
           <h1 className="text-[2.5rem] font-bold leading-tight">
-            Utwórz wydarzenie
+            {isEdit ? "Edytuj wydarzenie" : "Utwórz wydarzenie"}
           </h1>
           <AccountMenu userEmail={userEmail} />
         </div>
@@ -294,6 +324,7 @@ export function CreateEventForm({ userEmail }: { userEmail?: string | null }) {
               name="title"
               type="text"
               required
+              defaultValue={event?.title ?? ""}
               placeholder="Neon Pulse Festival"
               className={fieldClassName}
               disabled={isPending}
@@ -308,6 +339,7 @@ export function CreateEventForm({ userEmail }: { userEmail?: string | null }) {
               id="description"
               name="description"
               rows={5}
+              defaultValue={event?.description ?? ""}
               placeholder="Tell people what your event is about..."
               className={`${fieldClassName} resize-none`}
               disabled={isPending}
@@ -315,23 +347,37 @@ export function CreateEventForm({ userEmail }: { userEmail?: string | null }) {
           </div>
 
           <div>
-            <span className={labelClassName}>Category</span>
+            <div className="mb-3 flex items-center justify-between">
+              <span className={labelClassName}>Category</span>
+              <span className="text-sm text-zinc-500">
+                {categories.length}/2 wybrane
+              </span>
+            </div>
+            <p className="mb-3 text-sm text-zinc-500">
+              Wybierz 1 lub 2 kategorie. Kliknij ponownie, aby odznaczyć.
+            </p>
             <div className="grid grid-cols-3 gap-3">
               {INTEREST_CATEGORIES.map((item) => {
-                const isSelected = category === item.id;
+                const isSelected = categories.includes(item.id);
+                const isDisabled = !isSelected && categories.length >= 2;
 
                 return (
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => setCategory(item.id)}
-                    disabled={isPending}
-                    className={`flex h-[142px] flex-col items-center justify-center gap-2.5 rounded-[20px] border transition-all disabled:opacity-60 ${
+                    onClick={() => toggleCategory(item.id)}
+                    disabled={isPending || isDisabled}
+                    className={`relative flex h-[142px] flex-col items-center justify-center gap-2.5 rounded-[20px] border transition-all disabled:opacity-40 ${
                       isSelected
                         ? "border-violet-500 bg-[#151022]/90 shadow-[0_0_20px_rgba(139,92,246,0.25)]"
                         : "border-[#2a2640]/80 bg-[#101018]/70 hover:border-[#3a3650]"
                     }`}
                   >
+                    {isSelected && (
+                      <span className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-full bg-violet-500 text-xs font-bold text-white">
+                        {categories.indexOf(item.id) + 1}
+                      </span>
+                    )}
                     <span className="text-[3rem] leading-none" aria-hidden>
                       {item.emoji}
                     </span>
@@ -344,46 +390,128 @@ export function CreateEventForm({ userEmail }: { userEmail?: string | null }) {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label htmlFor="date" className={labelClassName}>
-                Date
-              </label>
-              <EventDatePicker id="date" name="date" disabled={isPending} />
-            </div>
-            <div>
-              <label htmlFor="time" className={labelClassName}>
-                Time
-              </label>
-              <input
-                id="time"
-                name="time"
-                type="time"
-                required
-                className={fieldClassName}
+          <div>
+            <span className={labelClassName}>Typ wydarzenia</span>
+            <p className="mb-3 text-sm text-zinc-500">
+              Jednorazowe — pojedyncze wydarzenie. Cykliczne — powtarzające się regularnie.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setRecurrence("one_time")}
                 disabled={isPending}
-              />
+                className={`flex h-[120px] flex-col items-center justify-center gap-2 rounded-[20px] border transition-all ${
+                  recurrence === "one_time"
+                    ? "border-violet-500 bg-[#151022]/90 shadow-[0_0_20px_rgba(139,92,246,0.25)]"
+                    : "border-[#2a2640]/80 bg-[#101018]/70 hover:border-[#3a3650]"
+                }`}
+              >
+                <span className="text-4xl leading-none" aria-hidden>
+                  📅
+                </span>
+                <span className="text-lg font-medium text-white">Jednorazowe</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRecurrence("recurring")}
+                disabled={isPending}
+                className={`flex h-[120px] flex-col items-center justify-center gap-2 rounded-[20px] border transition-all ${
+                  recurrence === "recurring"
+                    ? "border-violet-500 bg-[#151022]/90 shadow-[0_0_20px_rgba(139,92,246,0.25)]"
+                    : "border-[#2a2640]/80 bg-[#101018]/70 hover:border-[#3a3650]"
+                }`}
+              >
+                <span className="text-4xl leading-none" aria-hidden>
+                  🔁
+                </span>
+                <span className="text-lg font-medium text-white">Cykliczne</span>
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <span className={labelClassName}>Termin wydarzenia</span>
+            <p className="mb-4 text-sm text-zinc-500">
+              Podaj, od kiedy do kiedy trwa wydarzenie.
+            </p>
+
+            <p className="mb-2 text-sm font-semibold text-zinc-300">Od</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="startDate" className="mb-2 block text-sm text-zinc-500">
+                  Data
+                </label>
+                <EventDatePicker
+                  id="startDate"
+                  name="startDate"
+                  disabled={isPending}
+                  value={startDate}
+                  onChange={setStartDate}
+                />
+              </div>
+              <div>
+                <label htmlFor="startTime" className="mb-2 block text-sm text-zinc-500">
+                  Godzina
+                </label>
+                <input
+                  id="startTime"
+                  name="startTime"
+                  type="time"
+                  required
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                  className={fieldClassName}
+                  disabled={isPending}
+                />
+              </div>
+            </div>
+
+            <p className="mb-2 mt-5 text-sm font-semibold text-zinc-300">Do</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="endDate" className="mb-2 block text-sm text-zinc-500">
+                  Data
+                </label>
+                <EventDatePicker
+                  id="endDate"
+                  name="endDate"
+                  disabled={isPending}
+                  value={endDate}
+                  onChange={setEndDate}
+                />
+              </div>
+              <div>
+                <label htmlFor="endTime" className="mb-2 block text-sm text-zinc-500">
+                  Godzina
+                </label>
+                <input
+                  id="endTime"
+                  name="endTime"
+                  type="time"
+                  required
+                  value={endTime}
+                  onChange={(e) => setEndTime(e.target.value)}
+                  className={fieldClassName}
+                  disabled={isPending}
+                />
+              </div>
             </div>
           </div>
 
           <div>
             <label htmlFor="location" className={labelClassName}>
-              Location
+              Lokalizacja
             </label>
-            <div className="relative">
-              <span className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2">
-                <PinIcon />
-              </span>
-              <input
-                id="location"
-                name="location"
-                type="text"
-                required
-                placeholder="Brooklyn Warehouse"
-                className={`${fieldClassName} pl-14`}
-                disabled={isPending}
-              />
-            </div>
+            <p className="mb-3 text-sm text-zinc-500">
+              Wpisz nazwę miejsca, adres, plac lub budynek i wybierz z listy Google.
+            </p>
+            <LocationPicker
+              value={selectedLocation}
+              onChange={setSelectedLocation}
+              disabled={isPending}
+              initialLabel={event?.location}
+              variant="admin"
+            />
           </div>
 
           <div>
@@ -407,7 +535,7 @@ export function CreateEventForm({ userEmail }: { userEmail?: string | null }) {
             disabled={isPending}
             className="mt-2 h-16 w-full rounded-[20px] bg-gradient-to-r from-blue-500 to-violet-600 text-xl font-semibold text-white shadow-[0_0_24px_rgba(99,102,241,0.35)] transition-opacity hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isPending ? "Zapisywanie…" : "Create Event"}
+            {isPending ? "Zapisywanie…" : isEdit ? "Zapisz zmiany" : "Utwórz wydarzenie"}
           </button>
 
           {error && (

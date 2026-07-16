@@ -29,10 +29,40 @@ body {
   overflow-x: hidden;
 }
 
-html {
-  width: 100%;
-  max-width: none;
+/* Google Places Autocomplete dropdown */
+.pac-container {
+  z-index: 10000 !important;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #101018;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  margin-top: 4px;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
+
+.pac-item {
+  padding: 10px 14px;
+  color: #e4e4e7;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+}
+
+.pac-item:hover {
+  background: rgba(139, 92, 246, 0.12);
+}
+
+.pac-item-query {
+  color: #fff;
+}
+
+.pac-icon {
+  display: none;
+}
+
+.pac-logo::after {
+  filter: invert(1) opacity(0.5);
+}
+
 
 /* Override browser autofill background */
 input:-webkit-autofill,

@@ -10,7 +10,7 @@ export async function getUserEventsByStatus(
   const { data, error } = await supabase
     .from("event_participants")
     .select(
-      "events(id, title, description, category, starts_at, location, cover_url, status, created_by, created_at, updated_at)",
+      "events(id, title, description, category, categories, starts_at, ends_at, location, cover_url, status, created_by, created_at, updated_at)",
     )
     .eq("user_id", userId)
     .eq("status", status);

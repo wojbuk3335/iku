@@ -3,8 +3,8 @@ import { notFound, redirect } from "next/navigation";
 import { getUserParticipation } from "@/app/events/actions";
 import { BottomNav } from "@/components/events/bottom-nav";
 import { EventParticipationButtons } from "@/components/events/event-participation-buttons";
-import { formatEventDate } from "@/lib/events/format-event-date";
-import { getCategoryMeta } from "@/lib/events/category-style";
+import { formatEventDateRange } from "@/lib/events/format-event-date";
+import { getCategoryMeta, getEventCategories } from "@/lib/events/category-style";
 import { getGoingCount } from "@/lib/events/get-going-counts";
 import { getSessionProfile } from "@/lib/auth/get-session-profile";
 import { createClient } from "@/lib/supabase/server";
@@ -30,7 +30,7 @@ export default async function EventDetailPage({
   const { data } = await supabase
     .from("events")
     .select(
-      "id, title, description, category, starts_at, location, cover_url, status, created_by, created_at, updated_at",
+      "id, title, description, category, categories, recurrence, starts_at, ends_at, location, location_name, place_id, latitude, longitude, cover_url, status, created_by, created_at, updated_at",
     )
     .eq("id", id)
     .eq("status", "published")
@@ -41,14 +41,16 @@ export default async function EventDetailPage({
   }
 
   const event = data as Event;
-  const { label, emoji, gradient } = getCategoryMeta(event.category);
+  const eventCategories = getEventCategories(event);
+  const primary = getCategoryMeta(eventCategories[0]);
+  const { emoji, gradient } = primary;
   const [participation, goingCount] = await Promise.all([
     getUserParticipation(event.id),
     getGoingCount(event.id),
   ]);
 
   return (
-    <div className="mx-auto min-h-dvh max-w-lg bg-[#080810] pb-28 text-white">
+    <div className="mx-auto min-h-dvh max-w-2xl bg-[#080810] pb-28 text-white">
       <header className="sticky top-0 z-40 flex items-center gap-3 border-b border-white/5 bg-[#080810]/90 px-4 py-4 backdrop-blur-md">
         <Link
           href="/events"
@@ -81,13 +83,34 @@ export default async function EventDetailPage({
 
       <main className="space-y-4 px-4 py-5">
         <div>
-          <span className="rounded-full bg-violet-500/20 px-3 py-1 text-xs text-violet-200">
-            {label}
-          </span>
+          <div className="flex flex-wrap gap-2">
+            {eventCategories.map((cat) => {
+              const meta = getCategoryMeta(cat);
+              return (
+                <span
+                  key={cat}
+                  className="rounded-full bg-violet-500/20 px-3 py-1 text-xs text-violet-200"
+                >
+                  {meta.emoji} {meta.label}
+                </span>
+              );
+            })}
+          </div>
           <h2 className="mt-3 text-2xl font-bold">{event.title}</h2>
           <p className="mt-2 text-sm text-zinc-400">
-            {formatEventDate(event.starts_at)} · {event.location}
+            {formatEventDateRange(event.starts_at, event.ends_at)}
           </p>
+          <p className="mt-1 text-sm text-zinc-400">{event.location}</p>
+          {event.latitude != null && event.longitude != null && (
+            <a
+              href={`https://www.google.com/maps/search/?api=1&query=${event.latitude},${event.longitude}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2 inline-flex items-center gap-1.5 text-sm text-violet-300 transition-colors hover:text-violet-200"
+            >
+              Otwórz w Google Maps →
+            </a>
+          )}
         </div>
 
         {event.description && (

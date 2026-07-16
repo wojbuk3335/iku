@@ -7,6 +7,7 @@ import { BottomNav } from "@/components/events/bottom-nav";
 import { updateBio, updateAvatarUrl, updateFullName } from "@/app/profile/actions";
 import { createPost, toggleReaction, getPostComments, createComment } from "@/app/profile/wall-actions";
 import { followUser, unfollowUser } from "@/app/profile/znajomi-actions";
+import { getEventCategories } from "@/lib/events/category-style";
 import type { Event } from "@/types/event";
 import type { BadgeWithProgress } from "@/lib/profile/badges";
 import type { Post, Comment } from "@/app/profile/wall-actions";
@@ -393,7 +394,7 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
   }
 
   return (
-    <div className="mx-auto min-h-dvh max-w-lg bg-[#080810] pb-28 text-white">
+    <div className="mx-auto min-h-dvh max-w-2xl bg-[#080810] pb-28 text-white">
       {/* Header */}
       <header className="flex items-center justify-between px-4 pb-2 pt-5">
         <Link href="/events" className="text-zinc-400 hover:text-white">
@@ -1056,7 +1057,9 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
             .filter((e, i, arr) => arr.findIndex((x) => x.id === e.id) === i)
             .sort((a, b) => new Date(b.starts_at).getTime() - new Date(a.starts_at).getTime());
 
-          const uniqueCategories = new Set(allEvents.map((e) => e.category)).size;
+          const uniqueCategories = new Set(
+            allEvents.flatMap((e) => getEventCategories(e)),
+          ).size;
           const unlockedBadges = badgesWithProgress.filter((b) => b.unlocked).length;
 
           return (

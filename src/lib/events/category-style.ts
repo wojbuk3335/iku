@@ -21,3 +21,38 @@ export function getCategoryMeta(category: EventCategory) {
     gradient: GRADIENTS[category] ?? GRADIENTS.muzyka,
   };
 }
+
+/** Returns 1–2 categories for an event (falls back to legacy single category). */
+export function getEventCategories(event: {
+  category: EventCategory;
+  categories?: EventCategory[] | null;
+}): EventCategory[] {
+  if (event.categories && event.categories.length > 0) {
+    return event.categories;
+  }
+  return [event.category];
+}
+
+export function eventHasCategory(
+  event: { category: EventCategory; categories?: EventCategory[] | null },
+  category: EventCategory,
+): boolean {
+  return getEventCategories(event).includes(category);
+}
+
+export function eventMatchesInterests(
+  event: { category: EventCategory; categories?: EventCategory[] | null },
+  interests: Iterable<EventCategory>,
+): boolean {
+  const interestSet = new Set(interests);
+  return getEventCategories(event).some((cat) => interestSet.has(cat));
+}
+
+/** How many of the user's interests overlap with the event's categories (0–2). */
+export function countCategoryMatches(
+  event: { category: EventCategory; categories?: EventCategory[] | null },
+  interests: Iterable<EventCategory>,
+): number {
+  const interestSet = new Set(interests);
+  return getEventCategories(event).filter((cat) => interestSet.has(cat)).length;
+}

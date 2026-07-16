@@ -13,7 +13,7 @@ export async function getSessionProfile() {
 
   let { data: baseProfile } = await supabase
     .from("profiles")
-    .select("id, email, role, created_at")
+    .select("id, email, role, created_at, onboarding_completed, interests")
     .eq("id", user.id)
     .single();
 
@@ -26,7 +26,7 @@ export async function getSessionProfile() {
 
     const { data: createdProfile } = await supabase
       .from("profiles")
-      .select("id, email, role, created_at")
+      .select("id, email, role, created_at, onboarding_completed, interests")
       .eq("id", user.id)
       .single();
 
@@ -37,13 +37,6 @@ export async function getSessionProfile() {
     return { user, profile: null };
   }
 
-  const { data: extendedProfile } = await supabase
-    .from("profiles")
-    .select("onboarding_completed, interests")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  // bio, avatar_url, full_name — defensywny select (kolumny dodawane stopniowo migracjami)
   const { data: extraProfile } = await supabase
     .from("profiles")
     .select("bio, avatar_url, full_name")
@@ -56,8 +49,8 @@ export async function getSessionProfile() {
   const profile: Profile = {
     ...baseProfile,
     role: baseProfile.role,
-    onboarding_completed: extendedProfile?.onboarding_completed ?? false,
-    interests: extendedProfile?.interests ?? [],
+    onboarding_completed: baseProfile.onboarding_completed ?? false,
+    interests: Array.isArray(baseProfile.interests) ? baseProfile.interests : [],
     bio: (extraProfile as ExtraProfile)?.bio ?? null,
     avatar_url: (extraProfile as ExtraProfile)?.avatar_url ?? null,
     full_name: (extraProfile as ExtraProfile)?.full_name ?? null,

@@ -1,22 +1,28 @@
+import {
+  hasInterestMatches,
+  sortEventsForUser,
+  type UserCoordinates,
+} from "@/lib/events/sort-events";
 import type { Event, EventCategory } from "@/types/event";
 
 export type PersonalizedFeed = {
-  forYou: Event[];
-  other: Event[];
+  events: Event[];
+  hasInterestMatches: boolean;
 };
 
 export function personalizeFeed(
   events: Event[],
   interests: string[],
+  userLocation?: UserCoordinates | null,
 ): PersonalizedFeed {
-  if (interests.length === 0) {
-    return { forYou: [], other: events };
-  }
+  const interestCategories = interests as EventCategory[];
+  const sorted = sortEventsForUser(events, {
+    interests: interestCategories,
+    userLocation,
+  });
 
-  const interestSet = new Set(interests as EventCategory[]);
-
-  const forYou = events.filter((event) => interestSet.has(event.category));
-  const other = events.filter((event) => !interestSet.has(event.category));
-
-  return { forYou, other };
+  return {
+    events: sorted,
+    hasInterestMatches: hasInterestMatches(sorted, interestCategories),
+  };
 }

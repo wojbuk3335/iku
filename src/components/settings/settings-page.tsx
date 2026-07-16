@@ -47,7 +47,7 @@ export function SettingsPage({ email, interests }: SettingsPageProps) {
   }
 
   return (
-    <div className="mx-auto min-h-dvh max-w-lg bg-[#080810] pb-28 text-white">
+    <div className="mx-auto min-h-dvh max-w-2xl bg-[#080810] pb-28 text-white">
       {/* Header */}
       <header className="flex items-center justify-between px-4 pb-2 pt-5">
         <Link href="/profile" className="text-zinc-400 hover:text-white transition-colors">
