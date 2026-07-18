@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { getCreatorEvent } from "@/app/admin/actions";
+import { getEventAchievements } from "@/app/admin/events/achievements-actions";
 import { CreateEventForm } from "@/components/admin/create-event-form";
 import { getSessionProfile } from "@/lib/auth/get-session-profile";
 
@@ -19,5 +20,13 @@ export default async function EditCreatorEventPage({
   const event = await getCreatorEvent(id);
   if (!event) notFound();
 
-  return <CreateEventForm userEmail={user.email ?? null} event={event} />;
+  const achievements = await getEventAchievements(id);
+
+  return (
+    <CreateEventForm
+      userEmail={user.email ?? null}
+      event={event}
+      achievements={achievements}
+    />
+  );
 }

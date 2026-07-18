@@ -6,6 +6,7 @@ import { createEvent, updateEvent } from "@/app/admin/actions";
 import { AccountMenu } from "@/components/admin/account-menu";
 import { EventDatePicker } from "@/components/admin/event-date-picker";
 import { EventTimePicker } from "@/components/admin/event-time-picker";
+import { AchievementIcon } from "@/components/achievements/achievement-icon";
 import { LocationPicker } from "@/components/events/location-picker";
 import { uploadEventCover } from "@/lib/events/upload-event-cover";
 import { getEventCategories } from "@/lib/events/category-style";
@@ -13,6 +14,7 @@ import { INTEREST_CATEGORIES } from "@/types/interests";
 import { locationFromEvent } from "@/types/location";
 import type { EventLocation } from "@/types/location";
 import type { Event, EventCategory, EventRecurrence } from "@/types/event";
+import type { EventAchievement } from "@/types/achievement";
 
 function splitDateTime(iso: string) {
   const d = new Date(iso);
@@ -78,9 +80,11 @@ function ImageIcon() {
 export function CreateEventForm({
   userEmail,
   event,
+  achievements = [],
 }: {
   userEmail?: string | null;
   event?: Event | null;
+  achievements?: EventAchievement[];
 }) {
   const isEdit = !!event;
   const initialSchedule = getInitialSchedule(event);
@@ -557,9 +561,56 @@ export function CreateEventForm({
             </label>
             <p className="mb-3 text-sm text-zinc-500">
               {isEdit
-                ? "Otwórz kreator odznaki — po zapisaniu wrócisz do edycji wydarzenia."
-                : "Wypełnij wydarzenie, potem Dodaj odznakę. Przejdziesz do kreatora i wrócisz tutaj po zapisaniu."}
+                ? achievements.length > 0
+                  ? "Przypisane odznaki poniżej. Możesz dodać kolejną albo otworzyć listę."
+                  : "Otwórz kreator odznaki — po zapisaniu wrócisz tutaj i zobaczysz ją na liście."
+                : "Wypełnij wydarzenie, potem Dodaj odznakę. Przejdziesz do kreatora i wrócisz z odznaką na liście."}
             </p>
+
+            {isEdit && event && achievements.length > 0 ? (
+              <ul className="mb-4 space-y-2">
+                {achievements.map((badge) => (
+                  <li key={badge.id}>
+                    <Link
+                      href={`/admin/events/${event.id}/achievements/${badge.id}`}
+                      className="flex items-center gap-3 rounded-2xl border border-[#2a2640]/80 bg-[#0c0c14] px-4 py-3 transition-colors hover:border-violet-500/40"
+                    >
+                      <span
+                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl"
+                        style={{
+                          background: badge.background,
+                          boxShadow: `0 0 12px ${badge.color}33`,
+                        }}
+                      >
+                        <AchievementIcon
+                          icon={badge.icon}
+                          size={22}
+                          color={badge.color}
+                        />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium text-white">
+                          {badge.name}
+                        </span>
+                        <span className="mt-0.5 block truncate text-sm text-zinc-500">
+                          {badge.description}
+                        </span>
+                      </span>
+                      <span
+                        className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                          badge.status === "active"
+                            ? "bg-emerald-500/15 text-emerald-300"
+                            : "bg-zinc-500/20 text-zinc-400"
+                        }`}
+                      >
+                        {badge.status === "active" ? "Aktywna" : "Wyłączona"}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+
             <div className="flex flex-col gap-2 sm:flex-row">
               <button
                 type="button"
@@ -576,7 +627,9 @@ export function CreateEventForm({
                   href={`/admin/events/${event.id}/achievements`}
                   className="flex-1 rounded-[20px] border border-[#2a2640]/80 bg-[#101018]/70 px-5 py-4.5 text-left text-lg text-zinc-300 transition-colors hover:border-violet-500/40 hover:text-white"
                 >
-                  Lista odznak
+                  {achievements.length > 0
+                    ? `Zarządzaj (${achievements.length})`
+                    : "Lista odznak"}
                 </Link>
               ) : null}
             </div>
