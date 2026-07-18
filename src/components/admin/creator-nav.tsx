@@ -4,7 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const TABS = [
-  { href: "/admin", label: "Utwórz wydarzenie", match: (path: string) => path === "/admin" },
+  {
+    href: "/admin",
+    label: "Utwórz wydarzenie",
+    match: (path: string) => path === "/admin",
+  },
   {
     href: "/admin/events",
     label: "Utworzone wydarzenia",

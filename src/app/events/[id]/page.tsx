@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getUserParticipation } from "@/app/events/actions";
+import { getPublishedEventAchievements } from "@/app/admin/events/achievements-actions";
 import { BottomNav } from "@/components/events/bottom-nav";
 import { EventParticipationButtons } from "@/components/events/event-participation-buttons";
+import { EventAchievementsSection } from "@/components/achievements/event-achievements-section";
 import { formatEventDateRange } from "@/lib/events/format-event-date";
 import { getCategoryMeta, getEventCategories } from "@/lib/events/category-style";
 import { getGoingCount } from "@/lib/events/get-going-counts";
@@ -44,9 +46,10 @@ export default async function EventDetailPage({
   const eventCategories = getEventCategories(event);
   const primary = getCategoryMeta(eventCategories[0]);
   const { emoji, gradient } = primary;
-  const [participation, goingCount] = await Promise.all([
+  const [participation, goingCount, achievements] = await Promise.all([
     getUserParticipation(event.id),
     getGoingCount(event.id),
+    getPublishedEventAchievements(event.id),
   ]);
 
   return (
@@ -124,6 +127,8 @@ export default async function EventDetailPage({
           initialParticipation={participation}
           goingCount={goingCount}
         />
+
+        <EventAchievementsSection achievements={achievements} />
       </main>
 
       <BottomNav />

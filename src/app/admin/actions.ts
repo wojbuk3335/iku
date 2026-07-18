@@ -108,6 +108,43 @@ export async function getCreatorEvents(): Promise<Event[]> {
   return (data ?? []) as Event[];
 }
 
+export type CreatorEventBadge = {
+  id: string;
+  event_id: string;
+  name: string;
+  icon: string;
+  color: string;
+};
+
+/** Odznaki twórcy pogrupowane po event_id — do listy „Utworzone wydarzenia”. */
+export async function getCreatorEventBadges(): Promise<
+  Record<string, CreatorEventBadge[]>
+> {
+  const { supabase, userId } = await requireEventManager();
+
+  const { data, error } = await supabase
+    .from("event_achievements")
+    .select("id, event_id, name, icon, color, status")
+    .eq("created_by", userId)
+    .order("created_at", { ascending: true });
+
+  if (error) throw new Error(error.message);
+
+  const map: Record<string, CreatorEventBadge[]> = {};
+  for (const row of data ?? []) {
+    const badge: CreatorEventBadge = {
+      id: row.id,
+      event_id: row.event_id,
+      name: row.name,
+      icon: row.icon,
+      color: row.color,
+    };
+    if (!map[row.event_id]) map[row.event_id] = [];
+    map[row.event_id].push(badge);
+  }
+  return map;
+}
+
 export async function getCreatorEvent(id: string): Promise<Event | null> {
   const { supabase, userId } = await requireEventManager();
 
@@ -193,4 +230,28 @@ export async function updateEvent(input: UpdateEventInput): Promise<void> {
   revalidatePath(`/admin/events/${input.id}`);
   revalidatePath("/events");
   revalidatePath(`/events/${input.id}`);
+}
+
+export async function deleteEvent(id: string): Promise<void> {
+  if (!id) throw new Error("Brak ID wydarzenia.");
+
+  const { supabase, userId } = await requireEventManager();
+
+  const { data, error } = await supabase
+    .from("events")
+    .delete()
+    .eq("id", id)
+    .eq("created_by", userId)
+    .select("id")
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  if (!data) {
+    throw new Error("Nie możesz usunąć tego wydarzenia — nie jesteś jego twórcą.");
+  }
+
+  revalidatePath("/admin/events");
+  revalidatePath("/admin/achievements");
+  revalidatePath("/events");
+  revalidatePath("/map");
 }

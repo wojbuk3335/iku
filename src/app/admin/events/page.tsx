@@ -1,5 +1,8 @@
 import { redirect } from "next/navigation";
-import { getCreatorEvents } from "@/app/admin/actions";
+import {
+  getCreatorEventBadges,
+  getCreatorEvents,
+} from "@/app/admin/actions";
 import { CreatorEventsList } from "@/components/admin/creator-events-list";
 import { getSessionProfile } from "@/lib/auth/get-session-profile";
 
@@ -11,7 +14,16 @@ export default async function CreatorEventsPage() {
   if (!user) redirect("/");
   if (profile?.role !== "admin" && profile?.role !== "creator") redirect("/events");
 
-  const events = await getCreatorEvents();
+  const [events, badgesByEvent] = await Promise.all([
+    getCreatorEvents(),
+    getCreatorEventBadges(),
+  ]);
 
-  return <CreatorEventsList events={events} userEmail={user.email ?? null} />;
+  return (
+    <CreatorEventsList
+      events={events}
+      badgesByEvent={badgesByEvent}
+      userEmail={user.email ?? null}
+    />
+  );
 }

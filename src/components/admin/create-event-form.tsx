@@ -1,10 +1,12 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createEvent, updateEvent } from "@/app/admin/actions";
 import { AccountMenu } from "@/components/admin/account-menu";
 import { EventDatePicker } from "@/components/admin/event-date-picker";
+import { EventTimePicker } from "@/components/admin/event-time-picker";
 import { LocationPicker } from "@/components/events/location-picker";
 import { uploadEventCover } from "@/lib/events/upload-event-cover";
 import { getEventCategories } from "@/lib/events/category-style";
@@ -139,98 +141,107 @@ export function CreateEventForm({
     });
   }
 
+  function readFormFields(form: HTMLFormElement) {
+    const formData = new FormData(form);
+    return {
+      title: String(formData.get("title") ?? "").trim(),
+      description: String(formData.get("description") ?? "").trim(),
+      startDateValue: startDate || String(formData.get("startDate") ?? ""),
+      startTimeValue: startTime || String(formData.get("startTime") ?? ""),
+      endDateValue: endDate || String(formData.get("endDate") ?? ""),
+      endTimeValue: endTime || String(formData.get("endTime") ?? ""),
+    };
+  }
+
+  function validateBeforeSave(fields: ReturnType<typeof readFormFields>) {
+    if (categories.length === 0) {
+      return "Wybierz co najmniej jedną kategorię (maks. 2).";
+    }
+    if (!fields.title) {
+      return "Podaj tytuł wydarzenia.";
+    }
+    if (
+      !fields.startDateValue ||
+      !fields.startTimeValue ||
+      !fields.endDateValue ||
+      !fields.endTimeValue
+    ) {
+      return "Podaj datę i godzinę rozpoczęcia oraz zakończenia.";
+    }
+    if (!selectedLocation) {
+      return "Wybierz lokalizację z listy podpowiedzi Google.";
+    }
+
+    const startsAt = new Date(`${fields.startDateValue}T${fields.startTimeValue}`);
+    const endsAt = new Date(`${fields.endDateValue}T${fields.endTimeValue}`);
+
+    if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime())) {
+      return "Nieprawidłowa data lub godzina.";
+    }
+    if (endsAt <= startsAt) {
+      return "Zakończenie musi być późniejsze niż rozpoczęcie.";
+    }
+
+    return null;
+  }
+
+  async function persistEvent(form: HTMLFormElement) {
+    const fields = readFormFields(form);
+    const validationError = validateBeforeSave(fields);
+    if (validationError) throw new Error(validationError);
+
+    let coverUrl: string | null | undefined = undefined;
+    if (coverFile) {
+      coverUrl = await uploadEventCover(coverFile);
+    } else if (coverRemoved) {
+      coverUrl = null;
+    }
+
+    const startsAt = new Date(`${fields.startDateValue}T${fields.startTimeValue}`);
+    const endsAt = new Date(`${fields.endDateValue}T${fields.endTimeValue}`);
+
+    const payload = {
+      title: fields.title,
+      description: fields.description || undefined,
+      category: categories[0],
+      categories,
+      recurrence,
+      starts_at: startsAt.toISOString(),
+      ends_at: endsAt.toISOString(),
+      location: selectedLocation!.location,
+      location_name: selectedLocation!.location_name ?? undefined,
+      place_id: selectedLocation!.place_id ?? undefined,
+      latitude: selectedLocation!.latitude,
+      longitude: selectedLocation!.longitude,
+    };
+
+    if (isEdit && event) {
+      await updateEvent({
+        ...payload,
+        id: event.id,
+        cover_url: coverUrl,
+      });
+      return event.id;
+    }
+
+    const { id } = await createEvent({
+      ...payload,
+      cover_url: typeof coverUrl === "string" ? coverUrl : undefined,
+    });
+    return id;
+  }
+
   function handleSubmit(formEvent: React.FormEvent<HTMLFormElement>) {
     formEvent.preventDefault();
     setMessage(null);
     setError(null);
 
-    if (categories.length === 0) {
-      setError("Wybierz co najmniej jedną kategorię (maks. 2).");
-      return;
-    }
-
-    const formData = new FormData(formEvent.currentTarget);
-    const title = String(formData.get("title") ?? "");
-    const description = String(formData.get("description") ?? "");
-    const startDateValue = startDate || String(formData.get("startDate") ?? "");
-    const startTimeValue = startTime || String(formData.get("startTime") ?? "");
-    const endDateValue = endDate || String(formData.get("endDate") ?? "");
-    const endTimeValue = endTime || String(formData.get("endTime") ?? "");
-
-    if (!startDateValue || !startTimeValue || !endDateValue || !endTimeValue) {
-      setError("Podaj datę i godzinę rozpoczęcia oraz zakończenia.");
-      return;
-    }
-
-    if (!selectedLocation) {
-      setError("Wybierz lokalizację z listy podpowiedzi Google.");
-      return;
-    }
-
-    const startsAt = new Date(`${startDateValue}T${startTimeValue}`);
-    const endsAt = new Date(`${endDateValue}T${endTimeValue}`);
-
-    if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime())) {
-      setError("Nieprawidłowa data lub godzina.");
-      return;
-    }
-
-    if (endsAt <= startsAt) {
-      setError("Zakończenie musi być późniejsze niż rozpoczęcie.");
-      return;
-    }
-
+    const form = formEvent.currentTarget;
     startTransition(async () => {
       try {
-        let coverUrl: string | null | undefined = undefined;
-
-        if (coverFile) {
-          coverUrl = await uploadEventCover(coverFile);
-        } else if (coverRemoved) {
-          coverUrl = null;
-        }
-
-        const payload = {
-          title,
-          description: description || undefined,
-          category: categories[0],
-          categories,
-          recurrence,
-          starts_at: startsAt.toISOString(),
-          ends_at: endsAt.toISOString(),
-          location: selectedLocation.location,
-          location_name: selectedLocation.location_name ?? undefined,
-          place_id: selectedLocation.place_id ?? undefined,
-          latitude: selectedLocation.latitude,
-          longitude: selectedLocation.longitude,
-        };
-
-        if (isEdit && event) {
-          await updateEvent({
-            ...payload,
-            id: event.id,
-            cover_url: coverUrl,
-          });
-          router.push("/admin/events");
-          return;
-        }
-
-        const { id } = await createEvent({
-          ...payload,
-          cover_url: typeof coverUrl === "string" ? coverUrl : undefined,
-        });
-
-        setMessage(`Wydarzenie utworzone (id: ${id.slice(0, 8)}…).`);
-        setCategories([]);
-        setRecurrence("one_time");
-        setStartDate("");
-        setStartTime("");
-        setEndDate("");
-        setEndTime("");
-        setSelectedLocation(null);
-        setCoverRemoved(false);
-        clearCover();
-        formRef.current?.reset();
+        await persistEvent(form);
+        router.push("/admin/events");
+        router.refresh();
       } catch (err) {
         setError(
           err instanceof Error
@@ -238,6 +249,28 @@ export function CreateEventForm({
             : isEdit
               ? "Nie udało się zapisać zmian."
               : "Nie udało się utworzyć wydarzenia.",
+        );
+      }
+    });
+  }
+
+  function handleAddBadge() {
+    setMessage(null);
+    setError(null);
+
+    const form = formRef.current;
+    if (!form) return;
+
+    startTransition(async () => {
+      try {
+        const id = await persistEvent(form);
+        router.push(`/admin/events/${id}/achievements/new?returnTo=event`);
+        router.refresh();
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Uzupełnij wydarzenie, zanim dodasz odznakę.",
         );
       }
     });
@@ -260,7 +293,7 @@ export function CreateEventForm({
         >
           <div>
             <label className={labelClassName} htmlFor="cover">
-              Event Cover
+              Okładka wydarzenia
             </label>
             <input
               ref={fileInputRef}
@@ -295,7 +328,7 @@ export function CreateEventForm({
                 <>
                   <ImageIcon />
                   <span className="text-lg font-medium text-zinc-300">
-                    Upload cover image
+                    Dodaj zdjęcie okładki
                   </span>
                   <span className="text-base text-zinc-500">
                     JPG, PNG, WEBP · max 5 MB
@@ -317,7 +350,7 @@ export function CreateEventForm({
 
           <div>
             <label htmlFor="title" className={labelClassName}>
-              Event Title
+              Tytuł wydarzenia
             </label>
             <input
               id="title"
@@ -325,7 +358,7 @@ export function CreateEventForm({
               type="text"
               required
               defaultValue={event?.title ?? ""}
-              placeholder="Neon Pulse Festival"
+              placeholder="np. Neon Pulse Festival"
               className={fieldClassName}
               disabled={isPending}
             />
@@ -333,14 +366,17 @@ export function CreateEventForm({
 
           <div>
             <label htmlFor="description" className={labelClassName}>
-              Description
+              Opis
             </label>
+            <p className="mb-3 text-sm text-zinc-500">
+              Napisz, o czym jest wydarzenie — kto powinien przyjść i czego się spodziewać.
+            </p>
             <textarea
               id="description"
               name="description"
               rows={5}
               defaultValue={event?.description ?? ""}
-              placeholder="Tell people what your event is about..."
+              placeholder="np. Keynote dla developerów, live dema i networking…"
               className={`${fieldClassName} resize-none`}
               disabled={isPending}
             />
@@ -348,7 +384,7 @@ export function CreateEventForm({
 
           <div>
             <div className="mb-3 flex items-center justify-between">
-              <span className={labelClassName}>Category</span>
+              <span className={labelClassName}>Kategoria</span>
               <span className="text-sm text-zinc-500">
                 {categories.length}/2 wybrane
               </span>
@@ -453,15 +489,12 @@ export function CreateEventForm({
                 <label htmlFor="startTime" className="mb-2 block text-sm text-zinc-500">
                   Godzina
                 </label>
-                <input
+                <EventTimePicker
                   id="startTime"
                   name="startTime"
-                  type="time"
-                  required
-                  value={startTime}
-                  onChange={(e) => setStartTime(e.target.value)}
-                  className={fieldClassName}
                   disabled={isPending}
+                  value={startTime}
+                  onChange={setStartTime}
                 />
               </div>
             </div>
@@ -484,15 +517,12 @@ export function CreateEventForm({
                 <label htmlFor="endTime" className="mb-2 block text-sm text-zinc-500">
                   Godzina
                 </label>
-                <input
+                <EventTimePicker
                   id="endTime"
                   name="endTime"
-                  type="time"
-                  required
-                  value={endTime}
-                  onChange={(e) => setEndTime(e.target.value)}
-                  className={fieldClassName}
                   disabled={isPending}
+                  value={endTime}
+                  onChange={setEndTime}
                 />
               </div>
             </div>
@@ -519,15 +549,31 @@ export function CreateEventForm({
               <span className="text-xl" aria-hidden>
                 🏆
               </span>
-              Achievements (Optional)
+              Odznaki (opcjonalne)
             </label>
-            <button
-              type="button"
-              className="w-full rounded-[20px] border border-[#2a2640]/80 bg-[#101018]/70 px-5 py-4.5 text-left text-lg text-zinc-400 transition-colors hover:border-violet-500/40"
-              disabled={isPending}
-            >
-              + Create Achievement
-            </button>
+            <p className="mb-3 text-sm text-zinc-500">
+              {isEdit
+                ? "Otwórz kreator odznaki — po zapisaniu wrócisz do edycji wydarzenia."
+                : "Wypełnij wydarzenie, potem Dodaj odznakę. Przejdziesz do kreatora i wrócisz tutaj po zapisaniu."}
+            </p>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <button
+                type="button"
+                onClick={handleAddBadge}
+                disabled={isPending}
+                className="flex-1 rounded-[20px] border border-violet-500/40 bg-violet-500/15 px-5 py-4.5 text-left text-lg font-medium text-violet-200 transition-colors hover:bg-violet-500/25 disabled:opacity-60"
+              >
+                + Dodaj odznakę
+              </button>
+              {isEdit && event ? (
+                <Link
+                  href={`/admin/events/${event.id}/achievements`}
+                  className="flex-1 rounded-[20px] border border-[#2a2640]/80 bg-[#101018]/70 px-5 py-4.5 text-left text-lg text-zinc-300 transition-colors hover:border-violet-500/40 hover:text-white"
+                >
+                  Lista odznak
+                </Link>
+              ) : null}
+            </div>
           </div>
 
           <button
@@ -535,7 +581,11 @@ export function CreateEventForm({
             disabled={isPending}
             className="mt-2 h-16 w-full rounded-[20px] bg-gradient-to-r from-blue-500 to-violet-600 text-xl font-semibold text-white shadow-[0_0_24px_rgba(99,102,241,0.35)] transition-opacity hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isPending ? "Zapisywanie…" : isEdit ? "Zapisz zmiany" : "Utwórz wydarzenie"}
+            {isPending
+              ? "Zapisywanie…"
+              : isEdit
+                ? "Zapisz zmiany"
+                : "Utwórz wydarzenie"}
           </button>
 
           {error && (
