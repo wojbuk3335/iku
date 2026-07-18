@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { AchievementIcon } from "@/components/achievements/achievement-icon";
 import {
@@ -42,7 +41,6 @@ export function AchievementWizard({
   achievement?: EventAchievement | null;
   returnTo?: "list" | "event";
 }) {
-  const router = useRouter();
   const isEdit = !!achievement;
   const [isPending, startTransition] = useTransition();
   const backHref =
@@ -147,8 +145,8 @@ export function AchievementWizard({
           await createEventAchievement(payload);
         }
 
-        router.push(backHref);
-        router.refresh();
+        // Soft nav can hang on Vercel; force full page load back to event/list
+        window.location.href = backHref;
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Nie udało się zapisać odznaki.",

@@ -33,25 +33,49 @@ body {
   z-index: 10000 !important;
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  background: #101018;
+  background: #101018 !important;
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
   margin-top: 4px;
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  color: #e4e4e7;
 }
 
 .pac-item {
   padding: 10px 14px;
-  color: #e4e4e7;
+  color: #e4e4e7 !important;
+  background: #101018 !important;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
   cursor: pointer;
 }
 
-.pac-item:hover {
-  background: rgba(139, 92, 246, 0.12);
+.pac-item:hover,
+.pac-item-selected,
+.pac-item-selected:hover {
+  background: rgba(139, 92, 246, 0.28) !important;
+  color: #ffffff !important;
 }
 
 .pac-item-query {
-  color: #fff;
+  color: #ffffff !important;
+}
+
+.pac-item span {
+  color: #a1a1aa !important;
+}
+
+.pac-item:hover .pac-item-query,
+.pac-item-selected .pac-item-query {
+  color: #ffffff !important;
+}
+
+.pac-item:hover span,
+.pac-item-selected span {
+  color: #d4d4d8 !important;
+}
+
+.pac-matched {
+  color: #c4b5fd !important;
+  font-weight: 600;
 }
 
 .pac-icon {

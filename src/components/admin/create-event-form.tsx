@@ -2,7 +2,6 @@
 
 import { useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { createEvent, updateEvent } from "@/app/admin/actions";
 import { AccountMenu } from "@/components/admin/account-menu";
 import { EventDatePicker } from "@/components/admin/event-date-picker";
@@ -83,7 +82,6 @@ export function CreateEventForm({
   userEmail?: string | null;
   event?: Event | null;
 }) {
-  const router = useRouter();
   const isEdit = !!event;
   const initialSchedule = getInitialSchedule(event);
 
@@ -107,6 +105,9 @@ export function CreateEventForm({
   const [coverRemoved, setCoverRemoved] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<"save" | "badge" | null>(
+    null,
+  );
   const [isPending, startTransition] = useTransition();
 
   function handleCoverChange(event: React.ChangeEvent<HTMLInputElement>) {
@@ -235,14 +236,16 @@ export function CreateEventForm({
     formEvent.preventDefault();
     setMessage(null);
     setError(null);
+    setPendingAction("save");
 
     const form = formEvent.currentTarget;
     startTransition(async () => {
       try {
         await persistEvent(form);
-        router.push("/admin/events");
-        router.refresh();
+        // Hard navigation avoids stuck "Zapisywanie…" on Vercel soft nav
+        window.location.href = "/admin/events";
       } catch (err) {
+        setPendingAction(null);
         setError(
           err instanceof Error
             ? err.message
@@ -257,6 +260,7 @@ export function CreateEventForm({
   function handleAddBadge() {
     setMessage(null);
     setError(null);
+    setPendingAction("badge");
 
     const form = formRef.current;
     if (!form) return;
@@ -264,9 +268,9 @@ export function CreateEventForm({
     startTransition(async () => {
       try {
         const id = await persistEvent(form);
-        router.push(`/admin/events/${id}/achievements/new?returnTo=event`);
-        router.refresh();
+        window.location.href = `/admin/events/${id}/achievements/new?returnTo=event`;
       } catch (err) {
+        setPendingAction(null);
         setError(
           err instanceof Error
             ? err.message
@@ -563,7 +567,9 @@ export function CreateEventForm({
                 disabled={isPending}
                 className="flex-1 rounded-[20px] border border-violet-500/40 bg-violet-500/15 px-5 py-4.5 text-left text-lg font-medium text-violet-200 transition-colors hover:bg-violet-500/25 disabled:opacity-60"
               >
-                + Dodaj odznakę
+                {pendingAction === "badge"
+                  ? "Przechodzę do kreatora…"
+                  : "+ Dodaj odznakę"}
               </button>
               {isEdit && event ? (
                 <Link
@@ -582,7 +588,9 @@ export function CreateEventForm({
             className="mt-2 h-16 w-full rounded-[20px] bg-gradient-to-r from-blue-500 to-violet-600 text-xl font-semibold text-white shadow-[0_0_24px_rgba(99,102,241,0.35)] transition-opacity hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isPending
-              ? "Zapisywanie…"
+              ? pendingAction === "badge"
+                ? "Zapisuję i otwieram kreator…"
+                : "Zapisywanie…"
               : isEdit
                 ? "Zapisz zmiany"
                 : "Utwórz wydarzenie"}
