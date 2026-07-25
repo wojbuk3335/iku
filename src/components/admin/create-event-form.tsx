@@ -247,7 +247,7 @@ export function CreateEventForm({
       try {
         await persistEvent(form);
         // Hard navigation avoids stuck "Zapisywanie…" on Vercel soft nav
-        window.location.href = "/admin/events";
+        window.location.href = "/admin/stats?tab=events";
       } catch (err) {
         setPendingAction(null);
         setError(

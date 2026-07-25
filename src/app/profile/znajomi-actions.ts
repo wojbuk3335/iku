@@ -113,6 +113,8 @@ export async function followUser(targetUserId: string): Promise<void> {
   }
 
   revalidatePath("/profile");
+  revalidatePath("/admin/stats");
+  revalidatePath("/events");
 }
 
 export async function unfollowUser(targetUserId: string): Promise<void> {
@@ -127,4 +129,6 @@ export async function unfollowUser(targetUserId: string): Promise<void> {
     .eq("following_id", targetUserId);
 
   revalidatePath("/profile");
+  revalidatePath("/admin/stats");
+  revalidatePath("/events");
 }

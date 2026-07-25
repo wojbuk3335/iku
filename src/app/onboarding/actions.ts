@@ -2,12 +2,12 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getPostLoginPath } from "@/lib/auth/paths";
-import { MIN_INTERESTS } from "@/types/interests";
+import { MAX_INTERESTS, MIN_INTERESTS } from "@/types/interests";
 import type { UserRole } from "@/types/profile";
 
 export async function completeOnboarding(interests: string[]): Promise<string> {
-  if (interests.length < MIN_INTERESTS) {
-    throw new Error(`Wybierz co najmniej ${MIN_INTERESTS} kategorie.`);
+  if (interests.length < MIN_INTERESTS || interests.length > MAX_INTERESTS) {
+    throw new Error(`Wybierz dokładnie ${MAX_INTERESTS} kategorie.`);
   }
 
   const supabase = await createClient();

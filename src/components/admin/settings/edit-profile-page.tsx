@@ -3,8 +3,12 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import {
+  birthDateInputBounds,
+  isValidBirthDate,
+} from "@/lib/profile/birth-date";
 
-const inputCls = "w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3.5 text-sm text-white placeholder-zinc-600 outline-none focus:border-violet-500/50 transition-colors";
+const inputCls = "w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3.5 text-sm text-white placeholder-zinc-600 outline-none focus:border-violet-500/50 transition-colors [color-scheme:dark]";
 
 const PASSWORD_RULES = [
   { id: "length",  label: "Min. 5 znaków",       test: (p: string) => p.length >= 5 },
@@ -25,15 +29,17 @@ type Props = {
   fullName:   string | null;
   bio:        string | null;
   avatarUrl:  string | null;
+  birthDate:  string | null;
 };
 
-export function EditProfilePage({ userEmail, fullName, bio }: Props) {
+export function EditProfilePage({ userEmail, fullName, bio, birthDate }: Props) {
   const router   = useRouter();
   const supabase = createClient();
 
   // Profile section
   const [name,        setName]       = useState(fullName ?? "");
   const [description, setDesc]       = useState(bio ?? "");
+  const [birth,       setBirth]      = useState(birthDate ?? "");
   const [profileMsg,  setProfileMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [profilePending, startProfileTransition] = useTransition();
 
@@ -46,18 +52,29 @@ export function EditProfilePage({ userEmail, fullName, bio }: Props) {
 
   const strength      = getStrength(password);
   const passwordValid = strength === 4;
+  const dateBounds    = birthDateInputBounds();
 
   // ── Save profile ──────────────────────────────────────────────────────────
   async function handleSaveProfile(e: React.FormEvent) {
     e.preventDefault();
     setProfileMsg(null);
+
+    if (birth && !isValidBirthDate(birth)) {
+      setProfileMsg({ type: "err", text: "Podaj poprawną datę urodzenia (min. 13 lat)." });
+      return;
+    }
+
     startProfileTransition(async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setProfileMsg({ type: "err", text: "Brak sesji." }); return; }
 
       const { error } = await supabase
         .from("profiles")
-        .update({ full_name: name.trim() || null, bio: description.trim() || null })
+        .update({
+          full_name: name.trim() || null,
+          bio: description.trim() || null,
+          birth_date: birth || null,
+        })
         .eq("id", user.id);
 
       if (error) { setProfileMsg({ type: "err", text: error.message }); return; }
@@ -115,6 +132,17 @@ export function EditProfilePage({ userEmail, fullName, bio }: Props) {
               <label className="mb-1.5 block text-xs font-medium text-zinc-400">Imię i nazwisko</label>
               <input type="text" value={name} onChange={(e) => setName(e.target.value)}
                 placeholder="Jan Kowalski" className={inputCls} autoComplete="name" />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-zinc-400">Data urodzenia</label>
+              <input
+                type="date"
+                value={birth}
+                min={dateBounds.min}
+                max={dateBounds.max}
+                onChange={(e) => setBirth(e.target.value)}
+                className={inputCls}
+              />
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-medium text-zinc-400">

@@ -126,6 +126,7 @@ export async function toggleParticipation(
 
   revalidatePath("/events");
   revalidatePath(`/events/${eventId}`);
+  revalidatePath("/admin/stats");
 
   // Sprawdź i przyznaj odznaki (w tle — nie blokuje odpowiedzi)
   checkAndAwardBadges(user.id).catch(console.error);
@@ -157,4 +158,32 @@ export async function getUserParticipation(
     going: statuses.includes("going"),
     saved: statuses.includes("saved"),
   };
+}
+
+/** Każde otwarcie strony wydarzenia = +1 wyświetlenie (bez własnych od twórcy). */
+export async function recordEventView(eventId: string): Promise<void> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return;
+
+  const { data: event } = await supabase
+    .from("events")
+    .select("id, created_by, status")
+    .eq("id", eventId)
+    .eq("status", "published")
+    .maybeSingle();
+
+  if (!event || event.created_by === user.id) return;
+
+  const { error } = await supabase.from("event_views").insert({
+    event_id: eventId,
+    viewer_id: user.id,
+  });
+
+  if (error) {
+    console.error("recordEventView:", error.message);
+  }
 }

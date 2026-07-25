@@ -103,10 +103,13 @@ export function CreatorEventsList({
   events,
   badgesByEvent = {},
   userEmail,
+  embedded = false,
 }: {
   events: Event[];
   badgesByEvent?: Record<string, CreatorEventBadge[]>;
   userEmail?: string | null;
+  /** Bez pełnego layoutu strony — do wbudowania w panel Statystyk (Moje Events). */
+  embedded?: boolean;
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
@@ -152,175 +155,166 @@ export function CreatorEventsList({
     });
   }
 
-  return (
-    <div className="min-h-dvh w-full bg-[radial-gradient(ellipse_at_top,_#2a1845_0%,_#12101a_38%,_#080810_100%)] text-white">
-      <div className="mx-auto flex w-full max-w-2xl flex-col px-4 pb-14 pt-8 sm:px-6">
-        <div className="mb-8 flex items-start justify-between gap-4">
-          <h1 className="text-[2.5rem] font-bold leading-tight">
-            Utworzone wydarzenia
-          </h1>
-          <AccountMenu userEmail={userEmail} />
-        </div>
-
-        <div className="mb-6 flex items-center gap-2 rounded-2xl border border-[#2a2640]/80 bg-[#101018]/70 px-4 py-3">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="#52525b"
-            strokeWidth="1.8"
-            className="h-4 w-4 shrink-0"
-            aria-hidden
+  const listBody = (
+    <>
+      <div className="mb-6 flex items-center gap-2 rounded-2xl border border-[#2a2640]/80 bg-[#101018]/70 px-4 py-3">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="#52525b"
+          strokeWidth="1.8"
+          className="h-4 w-4 shrink-0"
+          aria-hidden
+        >
+          <circle cx="11" cy="11" r="8" />
+          <line x1="21" y1="21" x2="16.65" y2="16.65" />
+        </svg>
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Szukaj po tytule, lokalizacji, kategorii lub odznace…"
+          className="flex-1 bg-transparent text-sm text-white placeholder-zinc-600 outline-none"
+        />
+        {query && (
+          <button
+            type="button"
+            onClick={() => setQuery("")}
+            className="cursor-pointer text-zinc-600 transition-colors hover:text-zinc-400"
           >
-            <circle cx="11" cy="11" r="8" />
-            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-          </svg>
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Szukaj po tytule, lokalizacji, kategorii lub odznace…"
-            className="flex-1 bg-transparent text-sm text-white placeholder-zinc-600 outline-none"
-          />
-          {query && (
-            <button
-              type="button"
-              onClick={() => setQuery("")}
-              className="cursor-pointer text-zinc-600 transition-colors hover:text-zinc-400"
-            >
-              ✕
-            </button>
-          )}
-        </div>
-
-        {filtered.length === 0 ? (
-          <div className="rounded-2xl border border-white/10 bg-white/[0.02] px-6 py-16 text-center">
-            <p className="text-lg font-medium text-zinc-300">
-              {events.length === 0 ? "Nie masz jeszcze żadnych wydarzeń" : "Brak wyników"}
-            </p>
-            <p className="mt-2 text-sm text-zinc-500">
-              {events.length === 0
-                ? "Utwórz pierwsze wydarzenie w zakładce „Utwórz wydarzenie”."
-                : "Spróbuj innej frazy wyszukiwania."}
-            </p>
-            {events.length === 0 && (
-              <Link
-                href="/admin"
-                className="mt-6 inline-block rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-violet-500"
-              >
-                Utwórz wydarzenie
-              </Link>
-            )}
-          </div>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {filtered.map((event) => {
-              const cats = getEventCategories(event);
-              const badges = badgesByEvent[event.id] ?? [];
-
-              return (
-                <div
-                  key={event.id}
-                  className="rounded-2xl border border-[#2a2640]/80 bg-[#101018]/70 p-4 transition-colors hover:border-violet-500/40 hover:bg-[#151022]/90"
-                >
-                  <Link
-                    href={`/admin/events/${event.id}`}
-                    className="group flex cursor-pointer gap-4"
-                  >
-                    <div className="h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-zinc-800">
-                      {event.cover_url ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={event.cover_url}
-                          alt=""
-                          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                        />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center text-2xl">
-                          {getCategoryMeta(cats[0]).emoji}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-                      <h2 className="truncate text-base font-semibold text-white transition-colors group-hover:text-violet-200">
-                        {event.title}
-                      </h2>
-                      <p className="mt-1 text-sm text-zinc-500">
-                        {formatEventDateRangeShort(event.starts_at, event.ends_at)} ·{" "}
-                        {event.location}
-                      </p>
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {cats.map((cat) => {
-                          const meta = getCategoryMeta(cat);
-                          return (
-                            <span
-                              key={cat}
-                              className="rounded-full bg-violet-500/15 px-2 py-0.5 text-[10px] font-medium text-violet-300"
-                            >
-                              {meta.emoji} {meta.label}
-                            </span>
-                          );
-                        })}
-                        {badges.map((badge) => (
-                          <span
-                            key={badge.id}
-                            className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium"
-                            style={{
-                              background: `${badge.color}22`,
-                              color: badge.color,
-                            }}
-                            title={badge.name}
-                          >
-                            <AchievementIcon
-                              icon={badge.icon}
-                              size={10}
-                              color={badge.color}
-                            />
-                            {badge.name}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      className="mt-2 h-5 w-5 shrink-0 text-zinc-600 transition-colors group-hover:text-violet-400"
-                      aria-hidden
-                    >
-                      <polyline points="9 18 15 12 9 6" />
-                    </svg>
-                  </Link>
-
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Link
-                      href={`/admin/events/${event.id}/achievements`}
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-violet-500/20 bg-violet-500/10 px-3 py-1.5 text-xs font-medium text-violet-300 transition-colors hover:bg-violet-500/20"
-                    >
-                      🏆 {badges.length > 0 ? "Zarządzaj odznakami" : "Dodaj odznakę"}
-                    </Link>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setError(null);
-                        setEventToDelete(event);
-                      }}
-                      disabled={isPending}
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-red-500/25 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-300 transition-colors hover:bg-red-500/20 disabled:opacity-50"
-                    >
-                      Usuń
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+            ✕
+          </button>
         )}
       </div>
+
+      {filtered.length === 0 ? (
+        <div className="rounded-2xl border border-white/10 bg-white/[0.02] px-6 py-16 text-center">
+          <p className="text-lg font-medium text-zinc-300">
+            {events.length === 0 ? "Nie masz jeszcze żadnych wydarzeń" : "Brak wyników"}
+          </p>
+          <p className="mt-2 text-sm text-zinc-500">
+            {events.length === 0
+              ? "Utwórz pierwsze wydarzenie w zakładce „Utwórz wydarzenie”."
+              : "Spróbuj innej frazy wyszukiwania."}
+          </p>
+          {events.length === 0 && (
+            <Link
+              href="/admin"
+              className="mt-6 inline-block rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-violet-500"
+            >
+              Utwórz wydarzenie
+            </Link>
+          )}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {filtered.map((event) => {
+            const cats = getEventCategories(event);
+            const badges = badgesByEvent[event.id] ?? [];
+
+            return (
+              <div
+                key={event.id}
+                className="rounded-2xl border border-[#2a2640]/80 bg-[#101018]/70 p-4 transition-colors hover:border-violet-500/40 hover:bg-[#151022]/90"
+              >
+                <Link
+                  href={`/admin/events/${event.id}`}
+                  className="group flex cursor-pointer gap-4"
+                >
+                  <div className="h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-zinc-800">
+                    {event.cover_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={event.cover_url}
+                        alt=""
+                        className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-2xl">
+                        {getCategoryMeta(cats[0]).emoji}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <h2 className="truncate text-base font-semibold text-white transition-colors group-hover:text-violet-200">
+                      {event.title}
+                    </h2>
+                    <p className="mt-1 text-sm text-zinc-500">
+                      {formatEventDateRangeShort(event.starts_at, event.ends_at)} ·{" "}
+                      {event.location}
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {cats.map((cat) => {
+                        const meta = getCategoryMeta(cat);
+                        return (
+                          <span
+                            key={cat}
+                            className="rounded-full bg-violet-500/15 px-2 py-0.5 text-[10px] font-medium text-violet-300"
+                          >
+                            {meta.emoji} {meta.label}
+                          </span>
+                        );
+                      })}
+                      {badges.map((badge) => (
+                        <span
+                          key={badge.id}
+                          className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium"
+                          style={{
+                            background: `${badge.color}22`,
+                            color: badge.color,
+                          }}
+                          title={badge.name}
+                        >
+                          <AchievementIcon
+                            icon={badge.icon}
+                            size={10}
+                            color={badge.color}
+                          />
+                          {badge.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    className="mt-2 h-5 w-5 shrink-0 text-zinc-600 transition-colors group-hover:text-violet-400"
+                    aria-hidden
+                  >
+                    <polyline points="9 18 15 12 9 6" />
+                  </svg>
+                </Link>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Link
+                    href={`/admin/events/${event.id}/achievements`}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-violet-500/20 bg-violet-500/10 px-3 py-1.5 text-xs font-medium text-violet-300 transition-colors hover:bg-violet-500/20"
+                  >
+                    🏆 {badges.length > 0 ? "Zarządzaj odznakami" : "Dodaj odznakę"}
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setError(null);
+                      setEventToDelete(event);
+                    }}
+                    disabled={isPending}
+                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-red-500/25 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-300 transition-colors hover:bg-red-500/20 disabled:opacity-50"
+                  >
+                    Usuń
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {eventToDelete && (
         <DeleteEventModal
@@ -335,6 +329,24 @@ export function CreatorEventsList({
           onConfirm={confirmDelete}
         />
       )}
+    </>
+  );
+
+  if (embedded) {
+    return <div className="w-full text-white">{listBody}</div>;
+  }
+
+  return (
+    <div className="min-h-dvh w-full bg-[radial-gradient(ellipse_at_top,_#2a1845_0%,_#12101a_38%,_#080810_100%)] text-white">
+      <div className="mx-auto flex w-full max-w-2xl flex-col px-4 pb-14 pt-8 sm:px-6">
+        <div className="mb-8 flex items-start justify-between gap-4">
+          <h1 className="text-[2.5rem] font-bold leading-tight">
+            Utworzone wydarzenia
+          </h1>
+          <AccountMenu userEmail={userEmail} />
+        </div>
+        {listBody}
+      </div>
     </div>
   );
 }

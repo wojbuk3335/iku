@@ -13,7 +13,7 @@ export default async function ProfileSettingsPage() {
   const supabase = await createClient();
   const { data } = await supabase
     .from("profiles")
-    .select("full_name, bio, avatar_url")
+    .select("full_name, bio, avatar_url, birth_date")
     .eq("id", user.id)
     .single();
 
@@ -23,6 +23,7 @@ export default async function ProfileSettingsPage() {
       fullName={data?.full_name ?? null}
       bio={data?.bio ?? null}
       avatarUrl={data?.avatar_url ?? null}
+      birthDate={data?.birth_date ?? null}
     />
   );
 }

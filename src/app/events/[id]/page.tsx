@@ -5,6 +5,8 @@ import { getPublishedEventAchievements } from "@/app/admin/events/achievements-a
 import { BottomNav } from "@/components/events/bottom-nav";
 import { EventParticipationButtons } from "@/components/events/event-participation-buttons";
 import { EventAchievementsSection } from "@/components/achievements/event-achievements-section";
+import { FollowCreatorCard } from "@/components/events/follow-creator-card";
+import { TrackEventView } from "@/components/events/track-event-view";
 import { formatEventDateRange } from "@/lib/events/format-event-date";
 import { getCategoryMeta, getEventCategories } from "@/lib/events/category-style";
 import { getGoingCount } from "@/lib/events/get-going-counts";
@@ -46,14 +48,39 @@ export default async function EventDetailPage({
   const eventCategories = getEventCategories(event);
   const primary = getCategoryMeta(eventCategories[0]);
   const { emoji, gradient } = primary;
-  const [participation, goingCount, achievements] = await Promise.all([
-    getUserParticipation(event.id),
-    getGoingCount(event.id),
-    getPublishedEventAchievements(event.id),
-  ]);
+
+  const isOwnEvent = event.created_by === user.id;
+
+  const [participation, goingCount, achievements, creatorRes, followRes] =
+    await Promise.all([
+      getUserParticipation(event.id),
+      getGoingCount(event.id),
+      getPublishedEventAchievements(event.id),
+      supabase
+        .from("profiles")
+        .select("id, full_name, avatar_url, email")
+        .eq("id", event.created_by)
+        .maybeSingle(),
+      isOwnEvent
+        ? Promise.resolve({ data: null })
+        : supabase
+            .from("follows")
+            .select("follower_id")
+            .eq("follower_id", user.id)
+            .eq("following_id", event.created_by)
+            .maybeSingle(),
+    ]);
+
+  const creator = creatorRes.data;
+  const creatorName =
+    creator?.full_name?.trim() ||
+    creator?.email?.split("@")[0] ||
+    "Twórca";
+  const initiallyFollowing = Boolean(followRes.data);
 
   return (
     <div className="mx-auto min-h-dvh max-w-2xl bg-[#080810] pb-28 text-white">
+      <TrackEventView eventId={event.id} />
       <header className="sticky top-0 z-40 flex items-center gap-3 border-b border-white/5 bg-[#080810]/90 px-4 py-4 backdrop-blur-md">
         <Link
           href="/events"
@@ -120,6 +147,15 @@ export default async function EventDetailPage({
           <p className="text-base leading-relaxed text-zinc-300">
             {event.description}
           </p>
+        )}
+
+        {!isOwnEvent && creator && (
+          <FollowCreatorCard
+            creatorId={creator.id}
+            name={creatorName}
+            avatarUrl={creator.avatar_url ?? null}
+            initiallyFollowing={initiallyFollowing}
+          />
         )}
 
         <EventParticipationButtons

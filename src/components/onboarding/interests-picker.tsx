@@ -5,6 +5,7 @@ import { completeOnboarding } from "@/app/onboarding/actions";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import {
   INTEREST_CATEGORIES,
+  MAX_INTERESTS,
   MIN_INTERESTS,
 } from "@/types/interests";
 
@@ -13,15 +14,20 @@ export function InterestsPicker() {
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  const canContinue = selected.length >= MIN_INTERESTS;
+  const canContinue = selected.length === MIN_INTERESTS;
 
   function toggleInterest(id: string) {
     setError(null);
-    setSelected((current) =>
-      current.includes(id)
-        ? current.filter((item) => item !== id)
-        : [...current, id],
-    );
+    setSelected((current) => {
+      if (current.includes(id)) {
+        return current.filter((item) => item !== id);
+      }
+      if (current.length >= MAX_INTERESTS) {
+        setError(`Możesz wybrać maksymalnie ${MAX_INTERESTS} kategorie.`);
+        return current;
+      }
+      return [...current, id];
+    });
   }
 
   function handleContinue() {
@@ -51,7 +57,7 @@ export function InterestsPicker() {
           Co Cię interesuje?
         </h1>
         <p className="mt-4 text-xl leading-relaxed text-zinc-400">
-          Wybierz co najmniej 3 kategorie, aby spersonalizować swój feed
+          Wybierz {MIN_INTERESTS} kategorie, aby spersonalizować swój feed
         </p>
 
         <div className="mt-8 grid w-full grid-cols-2 gap-3">

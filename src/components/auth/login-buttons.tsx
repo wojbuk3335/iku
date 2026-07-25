@@ -7,10 +7,14 @@ import {
   getAuthCallbackErrorMessage,
   getAuthErrorMessage,
 } from "@/lib/auth/errors";
+import {
+  birthDateInputBounds,
+  isValidBirthDate,
+} from "@/lib/profile/birth-date";
 import { createClient } from "@/lib/supabase/client";
 
 const inputClassName =
-  "rounded-2xl border border-violet-500/20 bg-[#2a1845]/80 px-4 py-4 text-base text-white placeholder:text-violet-200/40 outline-none focus:border-violet-400/50";
+  "rounded-2xl border border-violet-500/20 bg-[#2a1845]/80 px-4 py-4 text-base text-white placeholder:text-violet-200/40 outline-none focus:border-violet-400/50 [color-scheme:dark]";
 
 function MailIcon() {
   return (
@@ -130,6 +134,7 @@ function RegisterForm({ onBack }: { onBack: () => void }) {
   const [firstName,  setFirstName] = useState("");
   const [lastName,   setLastName]  = useState("");
   const [orgName,    setOrgName]   = useState("");
+  const [birthDate,  setBirthDate] = useState("");
   const [email,      setEmail]     = useState("");
   const [emailTouched, setEmailTouched] = useState(false);
   const [password,   setPassword]  = useState("");
@@ -140,6 +145,7 @@ function RegisterForm({ onBack }: { onBack: () => void }) {
   const strength     = getStrength(password);
   const passwordValid = strength === 4;
   const emailError   = emailTouched && email && !isEmailValid(email);
+  const dateBounds   = birthDateInputBounds();
 
   async function handleRegister(e: React.FormEvent) {
     e.preventDefault();
@@ -147,6 +153,10 @@ function RegisterForm({ onBack }: { onBack: () => void }) {
     setEmailTouched(true);
 
     if (!isEmailValid(email))  { setMessage("Podaj poprawny adres email."); return; }
+    if (!birthDate || !isValidBirthDate(birthDate)) {
+      setMessage("Podaj poprawną datę urodzenia (min. 13 lat).");
+      return;
+    }
     if (!passwordValid)        { setMessage("Hasło nie spełnia wymagań bezpieczeństwa."); return; }
     if (password !== confirm)  { setMessage("Hasła nie są identyczne."); return; }
 
@@ -161,6 +171,7 @@ function RegisterForm({ onBack }: { onBack: () => void }) {
       const { error: profileError } = await supabase.from("profiles").upsert({
         id:                   data.user.id,
         full_name:            fullName || null,
+        birth_date:           birthDate,
         role,
         onboarding_completed: true,
         ...(orgName.trim() ? { bio: orgName.trim() } : {}),
@@ -233,6 +244,20 @@ function RegisterForm({ onBack }: { onBack: () => void }) {
           autoComplete="organization"
         />
       )}
+
+      {/* Birth date */}
+      <div className="flex flex-col gap-1">
+        <label className="px-1 text-xs text-violet-200/50">Data urodzenia</label>
+        <input
+          type="date"
+          required
+          value={birthDate}
+          min={dateBounds.min}
+          max={dateBounds.max}
+          onChange={(e) => setBirthDate(e.target.value)}
+          className={inputClassName}
+        />
+      </div>
 
       {/* Email */}
       <div className="flex flex-col gap-1">

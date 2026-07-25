@@ -16,3 +16,4 @@ export const INTEREST_CATEGORIES: InterestCategory[] = [
 ];
 
 export const MIN_INTERESTS = 3;
+export const MAX_INTERESTS = 3;
