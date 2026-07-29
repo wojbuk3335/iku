@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { markAllRead, markOneRead, seedSampleNotifications } from "@/app/notifications/actions";
 import type { Notification, NotificationType } from "@/app/notifications/actions";
 import { BottomNav } from "@/components/events/bottom-nav";
+import { createClient } from "@/lib/supabase/client";
 
 // ─── Icon per type ────────────────────────────────────────────────────────────
 function NotifIcon({ type }: { type: NotificationType }) {
@@ -18,6 +19,8 @@ function NotifIcon({ type }: { type: NotificationType }) {
           </svg>
         </span>
       );
+    case "new_follower":
+    case "unfollowed":
     case "friend_attending":
     case "friend_interested":
       return (
@@ -83,10 +86,74 @@ function relativeTime(dateStr: string): string {
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
-export function NotificationsPage({ notifications: initial }: { notifications: Notification[] }) {
+export function NotificationsPage({
+  notifications: initial,
+  userId,
+}: {
+  notifications: Notification[];
+  userId: string;
+}) {
   const [items, setItems] = useState(initial);
   const [isPending, startTransition] = useTransition();
   const [seeding, setSeeding] = useState(false);
+
+  useEffect(() => {
+    setItems(initial);
+  }, [initial]);
+
+  useEffect(() => {
+    const supabase = createClient();
+    let cancelled = false;
+
+    async function refreshFromServer() {
+      const { data } = await supabase
+        .from("notifications")
+        .select("id, type, title, body, is_read, created_at, metadata")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      if (cancelled || !data) return;
+
+      setItems((prev) => {
+        const same =
+          prev.length === data.length &&
+          prev.every((n, i) => n.id === data[i].id && n.is_read === data[i].is_read);
+        return same ? prev : (data as Notification[]);
+      });
+    }
+
+    const channel = supabase
+      .channel(`notifications:${userId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "notifications",
+          filter: `user_id=eq.${userId}`,
+        },
+        () => {
+          void refreshFromServer();
+        },
+      )
+      .subscribe();
+
+    // Fallback: działa między komputerami nawet bez włączonego Realtime
+    const poll = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refreshFromServer();
+    }, 2500);
+
+    const onFocus = () => void refreshFromServer();
+    window.addEventListener("focus", onFocus);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(poll);
+      window.removeEventListener("focus", onFocus);
+      void supabase.removeChannel(channel);
+    };
+  }, [userId]);
 
   const unreadCount = items.filter((n) => !n.is_read).length;
 
@@ -132,7 +199,7 @@ export function NotificationsPage({ notifications: initial }: { notifications: N
             </svg>
           </div>
           <p className="text-sm font-medium text-zinc-400">Brak powiadomień</p>
-          <p className="text-xs text-zinc-600">Tutaj pojawią się powiadomienia o wydarzeniach, znajomych i odznakach.</p>
+          <p className="text-xs text-zinc-600">Tutaj pojawią się powiadomienia o wydarzeniach, obserwujących i odznakach.</p>
           <button
             type="button"
             onClick={handleSeed}
@@ -168,7 +235,6 @@ export function NotificationsPage({ notifications: initial }: { notifications: N
                   <p className="mt-1 text-xs text-zinc-600">{relativeTime(notif.created_at)}</p>
                 </div>
 
-                {/* Unread dot */}
                 {!notif.is_read && (
                   <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-blue-500" />
                 )}

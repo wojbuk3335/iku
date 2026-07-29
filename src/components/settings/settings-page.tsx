@@ -7,7 +7,6 @@ import { updateInterests, updateUserProfile } from "@/app/settings/actions";
 import {
   INTEREST_CATEGORIES,
   MAX_INTERESTS,
-  MIN_INTERESTS,
 } from "@/types/interests";
 import {
   birthDateInputBounds,
@@ -45,6 +44,7 @@ type SettingsPageProps = {
   fullName: string | null;
   birthDate: string | null;
   interests: string[];
+  isPrivate: boolean;
 };
 
 export function SettingsPage({
@@ -52,140 +52,131 @@ export function SettingsPage({
   fullName,
   birthDate,
   interests,
+  isPrivate: initialIsPrivate,
 }: SettingsPageProps) {
   const supabase = createClient();
   const dateBounds = birthDateInputBounds();
 
   const [name, setName] = useState(fullName ?? "");
   const [birth, setBirth] = useState(birthDate ?? "");
-  const [profileMsg, setProfileMsg] = useState<{
-    type: "ok" | "err";
-    text: string;
-  } | null>(null);
-  const [profilePending, startProfileTransition] = useTransition();
-
+  const [isPrivate, setIsPrivate] = useState(initialIsPrivate);
   const [selected, setSelected] = useState<string[]>(
     interests.slice(0, MAX_INTERESTS),
   );
-  const [savingInterests, setSavingInterests] = useState(false);
-  const [interestsSaved, setInterestsSaved] = useState(false);
-  const [interestsError, setInterestsError] = useState<string | null>(null);
 
   const [current, setCurrent] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [passMsg, setPassMsg] = useState<{
+
+  const [saveMsg, setSaveMsg] = useState<{
     type: "ok" | "err";
     text: string;
   } | null>(null);
-  const [passPending, startPassTransition] = useTransition();
-
+  const [saving, startSave] = useTransition();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const strength = getStrength(password);
   const passwordValid = strength === 4;
+  const wantsPasswordChange = Boolean(current || password || confirm);
 
   function toggleInterest(id: string) {
-    setInterestsSaved(false);
-    setInterestsError(null);
+    setSaveMsg(null);
     setSelected((prev) => {
       if (prev.includes(id)) return prev.filter((i) => i !== id);
       if (prev.length >= MAX_INTERESTS) {
-        setInterestsError(`Możesz wybrać maksymalnie ${MAX_INTERESTS} zainteresowania.`);
+        setSaveMsg({
+          type: "err",
+          text: `Możesz wybrać maksymalnie ${MAX_INTERESTS} zainteresowania.`,
+        });
         return prev;
       }
       return [...prev, id];
     });
   }
 
-  function handleSaveProfile(e: React.FormEvent) {
+  function handleSave(e: React.FormEvent) {
     e.preventDefault();
-    setProfileMsg(null);
+    setSaveMsg(null);
 
     if (!name.trim()) {
-      setProfileMsg({ type: "err", text: "Podaj imię i nazwisko." });
+      setSaveMsg({ type: "err", text: "Podaj imię i nazwisko." });
       return;
     }
     if (!birth || !isValidBirthDate(birth)) {
-      setProfileMsg({
+      setSaveMsg({
         type: "err",
         text: "Podaj poprawną datę urodzenia (min. 13 lat).",
       });
       return;
     }
+    if (selected.length !== MAX_INTERESTS) {
+      setSaveMsg({
+        type: "err",
+        text: `Wybierz dokładnie ${MAX_INTERESTS} zainteresowania.`,
+      });
+      return;
+    }
 
-    startProfileTransition(async () => {
+    if (wantsPasswordChange) {
+      if (!current) {
+        setSaveMsg({ type: "err", text: "Podaj obecne hasło." });
+        return;
+      }
+      if (!passwordValid) {
+        setSaveMsg({ type: "err", text: "Nowe hasło nie spełnia wymagań." });
+        return;
+      }
+      if (password !== confirm) {
+        setSaveMsg({ type: "err", text: "Hasła nie są identyczne." });
+        return;
+      }
+    }
+
+    startSave(async () => {
       try {
         await updateUserProfile({
           fullName: name.trim(),
           birthDate: birth,
+          isPrivate,
         });
-        setProfileMsg({ type: "ok", text: "Profil zapisany!" });
+        await updateInterests(selected);
+
+        if (wantsPasswordChange) {
+          const { error: signInError } = await supabase.auth.signInWithPassword({
+            email,
+            password: current,
+          });
+          if (signInError) {
+            setSaveMsg({
+              type: "err",
+              text: "Obecne hasło jest nieprawidłowe.",
+            });
+            return;
+          }
+
+          const { error } = await supabase.auth.updateUser({ password });
+          if (error) {
+            setSaveMsg({ type: "err", text: error.message });
+            return;
+          }
+
+          setCurrent("");
+          setPassword("");
+          setConfirm("");
+        }
+
+        setSaveMsg({
+          type: "ok",
+          text: wantsPasswordChange
+            ? "Zapisano profil i zmieniono hasło!"
+            : "Zapisano!",
+        });
       } catch (err) {
-        setProfileMsg({
+        setSaveMsg({
           type: "err",
           text: err instanceof Error ? err.message : "Nie udało się zapisać.",
         });
       }
-    });
-  }
-
-  async function handleSaveInterests() {
-    setInterestsError(null);
-    if (selected.length !== MAX_INTERESTS) {
-      setInterestsError(`Wybierz dokładnie ${MAX_INTERESTS} zainteresowania.`);
-      return;
-    }
-    setSavingInterests(true);
-    try {
-      await updateInterests(selected);
-      setInterestsSaved(true);
-      setTimeout(() => setInterestsSaved(false), 2000);
-    } catch {
-      setInterestsError("Nie udało się zapisać zainteresowań.");
-    } finally {
-      setSavingInterests(false);
-    }
-  }
-
-  function handleChangePassword(e: React.FormEvent) {
-    e.preventDefault();
-    setPassMsg(null);
-
-    if (!passwordValid) {
-      setPassMsg({ type: "err", text: "Hasło nie spełnia wymagań." });
-      return;
-    }
-    if (password !== confirm) {
-      setPassMsg({ type: "err", text: "Hasła nie są identyczne." });
-      return;
-    }
-
-    startPassTransition(async () => {
-      if (current && email) {
-        const { error: signInError } = await supabase.auth.signInWithPassword({
-          email,
-          password: current,
-        });
-        if (signInError) {
-          setPassMsg({
-            type: "err",
-            text: "Obecne hasło jest nieprawidłowe.",
-          });
-          return;
-        }
-      }
-
-      const { error } = await supabase.auth.updateUser({ password });
-      if (error) {
-        setPassMsg({ type: "err", text: error.message });
-        return;
-      }
-
-      setCurrent("");
-      setPassword("");
-      setConfirm("");
-      setPassMsg({ type: "ok", text: "Hasło zostało zmienione!" });
     });
   }
 
@@ -211,7 +202,7 @@ export function SettingsPage({
         <div className="w-6" />
       </header>
 
-      <div className="space-y-6 px-4 pt-4">
+      <form onSubmit={handleSave} className="space-y-6 px-4 pt-4">
         <section className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
           <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
             Konto
@@ -223,7 +214,7 @@ export function SettingsPage({
           <h2 className="mb-4 text-sm font-semibold text-zinc-300">
             Dane profilu
           </h2>
-          <form onSubmit={handleSaveProfile} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4">
             <div>
               <label className="mb-1.5 block text-xs font-medium text-zinc-400">
                 Imię i nazwisko
@@ -253,26 +244,46 @@ export function SettingsPage({
               />
             </div>
 
-            {profileMsg && (
-              <p
-                className={`rounded-xl px-4 py-2.5 text-sm ${
-                  profileMsg.type === "ok"
-                    ? "bg-emerald-500/10 text-emerald-400"
-                    : "bg-red-500/10 text-red-400"
-                }`}
-              >
-                {profileMsg.text}
+            <div>
+              <p className="mb-2 text-xs font-medium text-zinc-400">
+                Widoczność profilu
               </p>
-            )}
-
-            <button
-              type="submit"
-              disabled={profilePending}
-              className="cursor-pointer rounded-2xl bg-violet-600 py-3 text-sm font-semibold text-white transition-colors hover:bg-violet-500 disabled:opacity-50"
-            >
-              {profilePending ? "Zapisuję…" : "Zapisz profil"}
-            </button>
-          </form>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsPrivate(false)}
+                  className={`cursor-pointer rounded-2xl border px-3 py-3 text-left transition-colors ${
+                    !isPrivate
+                      ? "border-violet-500/60 bg-violet-500/15"
+                      : "border-white/10 bg-white/5 hover:bg-white/8"
+                  }`}
+                >
+                  <p className={`text-sm font-semibold ${!isPrivate ? "text-white" : "text-zinc-300"}`}>
+                    Publiczny
+                  </p>
+                  <p className="mt-0.5 text-[11px] leading-snug text-zinc-500">
+                    Wszyscy mogą Cię znaleźć i obserwować
+                  </p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsPrivate(true)}
+                  className={`cursor-pointer rounded-2xl border px-3 py-3 text-left transition-colors ${
+                    isPrivate
+                      ? "border-violet-500/60 bg-violet-500/15"
+                      : "border-white/10 bg-white/5 hover:bg-white/8"
+                  }`}
+                >
+                  <p className={`text-sm font-semibold ${isPrivate ? "text-white" : "text-zinc-300"}`}>
+                    Prywatny
+                  </p>
+                  <p className="mt-0.5 text-[11px] leading-snug text-zinc-500">
+                    Nie pokazujesz się w propozycjach i wyszukiwarce
+                  </p>
+                </button>
+              </div>
+            </div>
+          </div>
         </section>
 
         <section>
@@ -292,7 +303,7 @@ export function SettingsPage({
                   key={cat.id}
                   type="button"
                   onClick={() => toggleInterest(cat.id)}
-                  className={`flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium transition-all ${
+                  className={`flex cursor-pointer items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium transition-all ${
                     isSelected
                       ? "bg-violet-600 text-white"
                       : "bg-white/8 text-zinc-400 hover:bg-white/12"
@@ -304,28 +315,16 @@ export function SettingsPage({
               );
             })}
           </div>
-          {interestsError && (
-            <p className="mt-2 text-xs text-red-400">{interestsError}</p>
-          )}
-          <button
-            type="button"
-            onClick={handleSaveInterests}
-            disabled={savingInterests || selected.length !== MIN_INTERESTS}
-            className="mt-4 w-full rounded-2xl bg-violet-600 py-3 text-sm font-semibold text-white transition-colors hover:bg-violet-500 disabled:opacity-50"
-          >
-            {savingInterests
-              ? "Zapisywanie…"
-              : interestsSaved
-                ? "✓ Zapisano!"
-                : "Zapisz zainteresowania"}
-          </button>
         </section>
 
         <section className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
-          <h2 className="mb-4 text-sm font-semibold text-zinc-300">
+          <h2 className="mb-1 text-sm font-semibold text-zinc-300">
             Zmiana hasła
           </h2>
-          <form onSubmit={handleChangePassword} className="flex flex-col gap-4">
+          <p className="mb-4 text-[11px] text-zinc-600">
+            Wypełnij tylko jeśli chcesz zmienić hasło
+          </p>
+          <div className="flex flex-col gap-4">
             <div>
               <label className="mb-1.5 block text-xs font-medium text-zinc-400">
                 Obecne hasło
@@ -415,32 +414,28 @@ export function SettingsPage({
                 autoComplete="new-password"
               />
             </div>
-
-            {passMsg && (
-              <p
-                className={`rounded-xl px-4 py-2.5 text-sm ${
-                  passMsg.type === "ok"
-                    ? "bg-emerald-500/10 text-emerald-400"
-                    : "bg-red-500/10 text-red-400"
-                }`}
-              >
-                {passMsg.text}
-              </p>
-            )}
-
-            <button
-              type="submit"
-              disabled={
-                passPending ||
-                !passwordValid ||
-                (!!confirm && confirm !== password)
-              }
-              className="cursor-pointer rounded-2xl bg-gradient-to-r from-indigo-500 to-violet-500 py-3 text-sm font-semibold text-white transition-opacity disabled:opacity-50"
-            >
-              {passPending ? "Zapisuję…" : "Zmień hasło"}
-            </button>
-          </form>
+          </div>
         </section>
+
+        {saveMsg && (
+          <p
+            className={`rounded-xl px-4 py-2.5 text-sm ${
+              saveMsg.type === "ok"
+                ? "bg-emerald-500/10 text-emerald-400"
+                : "bg-red-500/10 text-red-400"
+            }`}
+          >
+            {saveMsg.text}
+          </p>
+        )}
+
+        <button
+          type="submit"
+          disabled={saving}
+          className="w-full cursor-pointer rounded-2xl bg-violet-600 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-violet-500 disabled:opacity-50"
+        >
+          {saving ? "Zapisuję…" : "Zapisz"}
+        </button>
 
         <section>
           <p className="mb-3 text-xs font-medium uppercase tracking-wide text-red-500/70">
@@ -450,7 +445,7 @@ export function SettingsPage({
             <button
               type="button"
               onClick={() => setShowDeleteConfirm(true)}
-              className="w-full rounded-2xl border border-red-500/20 py-3 text-sm font-medium text-red-500/70 transition-colors hover:border-red-500/50 hover:text-red-400"
+              className="w-full cursor-pointer rounded-2xl border border-red-500/20 py-3 text-sm font-medium text-red-500/70 transition-colors hover:border-red-500/50 hover:text-red-400"
             >
               Usuń konto
             </button>
@@ -464,14 +459,14 @@ export function SettingsPage({
                 <button
                   type="button"
                   onClick={() => setShowDeleteConfirm(false)}
-                  className="flex-1 rounded-xl bg-white/10 py-2 text-sm text-zinc-300"
+                  className="flex-1 cursor-pointer rounded-xl bg-white/10 py-2 text-sm text-zinc-300"
                 >
                   Anuluj
                 </button>
                 <button
                   type="button"
                   onClick={() => alert("Funkcja usuwania konta wkrótce.")}
-                  className="flex-1 rounded-xl bg-red-600 py-2 text-sm font-semibold text-white hover:bg-red-500"
+                  className="flex-1 cursor-pointer rounded-xl bg-red-600 py-2 text-sm font-semibold text-white hover:bg-red-500"
                 >
                   Usuń
                 </button>
@@ -479,7 +474,7 @@ export function SettingsPage({
             </div>
           )}
         </section>
-      </div>
+      </form>
 
       <BottomNav activePage="profile" />
     </div>

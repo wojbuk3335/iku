@@ -8,12 +8,14 @@ export type FollowingUser = {
   full_name: string | null;
   avatar_url: string | null;
   bio: string | null;
+  email: string | null;
 };
 
 export type SuggestedUser = {
   id: string;
   full_name: string | null;
   avatar_url: string | null;
+  email: string | null;
   mutual_count: number;
 };
 
@@ -35,11 +37,40 @@ export async function getFollowingUsers(userId: string): Promise<FollowingUser[]
 
   const { data: profiles, error: profilesError } = await supabase
     .from("profiles")
-    .select("id, full_name, avatar_url, bio")
+    .select("id, full_name, avatar_url, bio, email")
     .in("id", ids);
 
   if (profilesError) {
     console.error("getFollowingUsers [profiles]:", profilesError.message);
+    return [];
+  }
+
+  return (profiles ?? []) as FollowingUser[];
+}
+
+export async function getFollowerUsers(userId: string): Promise<FollowingUser[]> {
+  const supabase = await createClient();
+
+  const { data: followData, error: followError } = await supabase
+    .from("follows")
+    .select("follower_id")
+    .eq("following_id", userId);
+
+  if (followError) {
+    console.error("getFollowerUsers [follows]:", followError.message);
+    return [];
+  }
+
+  const ids = (followData ?? []).map((f) => f.follower_id);
+  if (ids.length === 0) return [];
+
+  const { data: profiles, error: profilesError } = await supabase
+    .from("profiles")
+    .select("id, full_name, avatar_url, bio, email")
+    .in("id", ids);
+
+  if (profilesError) {
+    console.error("getFollowerUsers [profiles]:", profilesError.message);
     return [];
   }
 
@@ -65,10 +96,12 @@ export async function getSuggestedUsers(userId: string): Promise<SuggestedUser[]
 
   const myFollowerIds = (followersData ?? []).map((f) => f.follower_id);
 
-  // Fetch candidate profiles (not yet followed, not self)
+  // Fetch candidate profiles (regular users only — no admins/creators)
   let profilesQuery = supabase
     .from("profiles")
-    .select("id, full_name, avatar_url")
+    .select("id, full_name, avatar_url, email")
+    .eq("role", "user")
+    .eq("is_private", false)
     .neq("id", userId)
     .limit(20);
 
@@ -99,10 +132,47 @@ export async function getSuggestedUsers(userId: string): Promise<SuggestedUser[]
   return withMutual.sort((a, b) => b.mutual_count - a.mutual_count).slice(0, 10);
 }
 
+export async function searchUsers(query: string): Promise<SuggestedUser[]> {
+  const q = query.trim();
+  if (q.length < 1) return [];
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const { data: followData } = await supabase
+    .from("follows")
+    .select("following_id")
+    .eq("follower_id", user.id);
+
+  const excludeIds = new Set([
+    user.id,
+    ...(followData ?? []).map((f) => f.following_id),
+  ]);
+
+  const { data: candidates, error } = await supabase
+    .from("profiles")
+    .select("id, full_name, avatar_url, email")
+    .eq("role", "user")
+    .eq("is_private", false)
+    .ilike("full_name", `%${q}%`)
+    .limit(20);
+
+  if (error) {
+    console.error("searchUsers:", error.message);
+    return [];
+  }
+
+  return (candidates ?? [])
+    .filter((p) => !excludeIds.has(p.id))
+    .map((p) => ({ ...p, mutual_count: 0 }) as SuggestedUser);
+}
+
 export async function followUser(targetUserId: string): Promise<void> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Musisz być zalogowany.");
+  if (user.id === targetUserId) throw new Error("Nie możesz obserwować siebie.");
 
   const { error } = await supabase
     .from("follows")
@@ -112,7 +182,30 @@ export async function followUser(targetUserId: string): Promise<void> {
     throw new Error(error.message);
   }
 
+  // Powiadomienie dla obserwowanego (tylko przy nowym follow)
+  if (!error) {
+    const { data: me } = await supabase
+      .from("profiles")
+      .select("full_name, email")
+      .eq("id", user.id)
+      .single();
+
+    const name =
+      me?.full_name?.trim() ||
+      me?.email?.split("@")[0] ||
+      "Użytkownik";
+
+    await supabase.from("notifications").insert({
+      user_id: targetUserId,
+      type: "new_follower",
+      title: `${name} zaczął Cię obserwować`,
+      body: "Masz nowego obserwującego na IKU",
+      metadata: { follower_id: user.id },
+    });
+  }
+
   revalidatePath("/profile");
+  revalidatePath("/notifications");
   revalidatePath("/admin/stats");
   revalidatePath("/events");
 }
@@ -122,13 +215,38 @@ export async function unfollowUser(targetUserId: string): Promise<void> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Musisz być zalogowany.");
 
-  await supabase
+  const { data: deleted, error } = await supabase
     .from("follows")
     .delete()
     .eq("follower_id", user.id)
-    .eq("following_id", targetUserId);
+    .eq("following_id", targetUserId)
+    .select("following_id");
+
+  if (error) throw new Error(error.message);
+
+  if (deleted && deleted.length > 0) {
+    const { data: me } = await supabase
+      .from("profiles")
+      .select("full_name, email")
+      .eq("id", user.id)
+      .single();
+
+    const name =
+      me?.full_name?.trim() ||
+      me?.email?.split("@")[0] ||
+      "Użytkownik";
+
+    await supabase.from("notifications").insert({
+      user_id: targetUserId,
+      type: "unfollowed",
+      title: `${name} przestał Cię obserwować`,
+      body: "Ktoś przestał obserwować Twój profil na IKU",
+      metadata: { follower_id: user.id },
+    });
+  }
 
   revalidatePath("/profile");
+  revalidatePath("/notifications");
   revalidatePath("/admin/stats");
   revalidatePath("/events");
 }

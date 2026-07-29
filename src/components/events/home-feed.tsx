@@ -5,6 +5,7 @@ import { BottomNav } from "@/components/events/bottom-nav";
 import { EventCard } from "@/components/events/event-card";
 import { HomeHeader } from "@/components/events/home-header";
 import { StoriesRow } from "@/components/events/stories-row";
+import type { StoryAuthorGroup } from "@/app/stories/actions";
 import {
   countCategoryMatches,
   getCategoryMeta,
@@ -17,6 +18,8 @@ type HomeFeedProps = {
   events: Event[];
   interests: string[];
   goingCounts: Record<string, number>;
+  storyGroups: StoryAuthorGroup[];
+  currentUserId: string;
 };
 
 const VISIBLE_CARDS = 3;
@@ -86,7 +89,7 @@ function EventCards({
   ));
 }
 
-export function HomeFeed({ events, interests, goingCounts }: HomeFeedProps) {
+export function HomeFeed({ events, interests, goingCounts, storyGroups, currentUserId }: HomeFeedProps) {
   const [query, setQuery] = useState("");
   const interestCategories = interests as EventCategory[];
 
@@ -118,7 +121,7 @@ export function HomeFeed({ events, interests, goingCounts }: HomeFeedProps) {
       <HomeHeader onSearchClick={() => document.getElementById("event-search")?.focus()} />
 
       <div className="px-4 pt-3">
-        <StoriesRow />
+        <StoriesRow initialGroups={storyGroups} currentUserId={currentUserId} />
       </div>
 
       <div className="px-4 pt-4">

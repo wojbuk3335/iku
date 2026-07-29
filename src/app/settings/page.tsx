@@ -18,30 +18,46 @@ export default async function Settings() {
   let fullName = profile?.full_name ?? null;
   let birthDate = profile?.birth_date ?? null;
   let interests = profile?.interests ?? [];
+  let isPrivate = false;
 
   const withBirth = await supabase
     .from("profiles")
-    .select("full_name, birth_date, interests")
+    .select("full_name, birth_date, interests, is_private")
     .eq("id", user.id)
     .maybeSingle();
 
   if (!withBirth.error && withBirth.data) {
     fullName = withBirth.data.full_name ?? fullName;
     birthDate = withBirth.data.birth_date ?? birthDate;
+    isPrivate = Boolean(withBirth.data.is_private);
     if (Array.isArray(withBirth.data.interests)) {
       interests = withBirth.data.interests;
     }
   } else {
-    const withoutBirth = await supabase
+    const withoutPrivacy = await supabase
       .from("profiles")
-      .select("full_name, interests")
+      .select("full_name, birth_date, interests")
       .eq("id", user.id)
       .maybeSingle();
 
-    if (!withoutBirth.error && withoutBirth.data) {
-      fullName = withoutBirth.data.full_name ?? fullName;
-      if (Array.isArray(withoutBirth.data.interests)) {
-        interests = withoutBirth.data.interests;
+    if (!withoutPrivacy.error && withoutPrivacy.data) {
+      fullName = withoutPrivacy.data.full_name ?? fullName;
+      birthDate = withoutPrivacy.data.birth_date ?? birthDate;
+      if (Array.isArray(withoutPrivacy.data.interests)) {
+        interests = withoutPrivacy.data.interests;
+      }
+    } else {
+      const withoutBirth = await supabase
+        .from("profiles")
+        .select("full_name, interests")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (!withoutBirth.error && withoutBirth.data) {
+        fullName = withoutBirth.data.full_name ?? fullName;
+        if (Array.isArray(withoutBirth.data.interests)) {
+          interests = withoutBirth.data.interests;
+        }
       }
     }
   }
@@ -52,6 +68,7 @@ export default async function Settings() {
       fullName={fullName}
       birthDate={birthDate}
       interests={interests}
+      isPrivate={isPrivate}
     />
   );
 }

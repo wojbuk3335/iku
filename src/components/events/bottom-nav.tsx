@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
 
 export type ActivePage = "home" | "explore" | "map" | "notifications" | "profile";
 
@@ -99,6 +101,65 @@ function UserIcon() {
 }
 
 export function BottomNav({ activePage = "home" }: { activePage?: ActivePage }) {
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    const supabase = createClient();
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let cancelled = false;
+    let userId: string | null = null;
+
+    async function refreshUnread() {
+      if (!userId) return;
+      const { count } = await supabase
+        .from("notifications")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", userId)
+        .eq("is_read", false);
+      if (!cancelled) setUnreadCount(count ?? 0);
+    }
+
+    async function setup() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || cancelled) return;
+      userId = user.id;
+
+      await refreshUnread();
+
+      channel = supabase
+        .channel(`nav-notifications:${user.id}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "notifications",
+            filter: `user_id=eq.${user.id}`,
+          },
+          () => {
+            void refreshUnread();
+          },
+        )
+        .subscribe();
+    }
+
+    void setup();
+
+    // Fallback: aktualizacja badge bez odświeżania strony (też między komputerami)
+    const poll = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refreshUnread();
+    }, 2500);
+
+    const onFocus = () => void refreshUnread();
+    window.addEventListener("focus", onFocus);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(poll);
+      window.removeEventListener("focus", onFocus);
+      if (channel) void supabase.removeChannel(channel);
+    };
+  }, []);
 
   const activeClass = "text-blue-500";
   const inactiveClass = "text-zinc-500";
@@ -107,7 +168,6 @@ export function BottomNav({ activePage = "home" }: { activePage?: ActivePage }) 
     <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-white/5 bg-[#080810]/95 backdrop-blur-md">
       <div className="mx-auto flex max-w-2xl items-end justify-around px-2 pb-5 pt-2">
 
-        {/* Home */}
         <Link
           href="/events"
           className={`flex min-w-14 flex-col items-center gap-1 ${activePage === "home" ? activeClass : inactiveClass}`}
@@ -117,7 +177,6 @@ export function BottomNav({ activePage = "home" }: { activePage?: ActivePage }) 
           <span className="text-[11px] font-medium">Home</span>
         </Link>
 
-        {/* Explore */}
         <Link
           href="/explore"
           className={`flex min-w-14 flex-col items-center gap-1 ${activePage === "explore" ? activeClass : inactiveClass}`}
@@ -127,7 +186,6 @@ export function BottomNav({ activePage = "home" }: { activePage?: ActivePage }) 
           <span className="text-[11px] font-medium">Odkryj</span>
         </Link>
 
-        {/* Map */}
         <Link
           href="/map"
           className={`flex min-w-14 flex-col items-center gap-1 ${activePage === "map" ? activeClass : inactiveClass}`}
@@ -137,17 +195,22 @@ export function BottomNav({ activePage = "home" }: { activePage?: ActivePage }) 
           <span className="text-[11px] font-medium">Mapa</span>
         </Link>
 
-        {/* Notifications */}
         <Link
           href="/notifications"
           className={`relative flex min-w-14 flex-col items-center gap-1 ${activePage === "notifications" ? activeClass : inactiveClass}`}
           aria-current={activePage === "notifications" ? "page" : undefined}
         >
-          <BellIcon active={activePage === "notifications"} />
+          <span className="relative">
+            <BellIcon active={activePage === "notifications"} />
+            {unreadCount > 0 && (
+              <span className="absolute -right-1.5 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-500 px-1 text-[9px] font-bold text-white">
+                {unreadCount > 9 ? "9+" : unreadCount}
+              </span>
+            )}
+          </span>
           <span className="text-[11px] font-medium">Powiadomienia</span>
         </Link>
 
-        {/* Profile */}
         <Link
           href="/profile"
           className={`flex min-w-14 flex-col items-center gap-1 ${activePage === "profile" ? activeClass : inactiveClass}`}

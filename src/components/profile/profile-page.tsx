@@ -7,7 +7,7 @@ import { BottomNav } from "@/components/events/bottom-nav";
 import { ProfileAccountMenu } from "@/components/profile/profile-account-menu";
 import { updateBio, updateAvatarUrl, updateFullName } from "@/app/profile/actions";
 import { createPost, toggleReaction, getPostComments, createComment } from "@/app/profile/wall-actions";
-import { followUser, unfollowUser } from "@/app/profile/znajomi-actions";
+import { followUser, unfollowUser, searchUsers } from "@/app/profile/znajomi-actions";
 import { getEventCategories } from "@/lib/events/category-style";
 import type { Event } from "@/types/event";
 import type { BadgeWithProgress } from "@/lib/profile/badges";
@@ -27,7 +27,9 @@ type ProfilePageProps = {
   badgesWithProgress: BadgeWithProgress[];
   posts: Post[];
   followingUsers: FollowingUser[];
+  followerUsers: FollowingUser[];
   suggestedUsers: SuggestedUser[];
+  hasActiveStory?: boolean;
 };
 
 function getInitials(email: string): string {
@@ -54,8 +56,8 @@ function getAvatarColor(email: string): string {
   return colors[index];
 }
 
-type Tab = "wall" | "badges" | "znajomi" | "historia";
-
+type Tab = "wall" | "badges" | "obserwowani" | "historia";
+type StatsPanel = "followers" | "following" | "events" | "badges" | null;
 function rarityColor(rarity: string): string {
   switch (rarity) {
     case "Rzadka":     return "#3b82f6";
@@ -128,8 +130,9 @@ function BadgeIcon({ id, size = 20, color = "currentColor" }: { id: string; size
   }
 }
 
-export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEvents, savedEvents, followers, following, badgesWithProgress, posts, followingUsers, suggestedUsers }: ProfilePageProps) {
+export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEvents, savedEvents, followers, following, badgesWithProgress, posts, followingUsers, followerUsers, suggestedUsers, hasActiveStory = false }: ProfilePageProps) {
   const [activeTab, setActiveTab] = useState<Tab>("wall");
+  const [statsPanel, setStatsPanel] = useState<StatsPanel>(null);
   const [signingOut, setSigningOut] = useState(false);
   const [editingBio, setEditingBio] = useState(false);
   const [bioValue, setBioValue] = useState(bio ?? "");
@@ -154,13 +157,42 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
   const [savingName, setSavingName] = useState(false);
   const [localFollowing, setLocalFollowing] = useState<FollowingUser[]>(followingUsers);
   const [localSuggestions, setLocalSuggestions] = useState<SuggestedUser[]>(suggestedUsers);
+  const [followingCount, setFollowingCount] = useState(following);
   const [addingUserId, setAddingUserId] = useState<string | null>(null);
   const [unfollowingUserId, setUnfollowingUserId] = useState<string | null>(null);
+  const [suggestQuery, setSuggestQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SuggestedUser[] | null>(null);
+  const [searchingUsers, setSearchingUsers] = useState(false);
 
   const initials = getInitials(email);
   const avatarGradient = getAvatarColor(email);
   const fallbackName = email.split("@")[0].replace(/[._-]/g, " ");
   const displayName = nameValue || fallbackName;
+
+  useEffect(() => {
+    const q = suggestQuery.trim();
+    if (!q) {
+      setSearchResults(null);
+      setSearchingUsers(false);
+      return;
+    }
+
+    setSearchingUsers(true);
+    const timer = setTimeout(async () => {
+      try {
+        const results = await searchUsers(q);
+        setSearchResults(results);
+      } catch {
+        setSearchResults([]);
+      } finally {
+        setSearchingUsers(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [suggestQuery]);
+
+  const displayedSuggestions = searchResults ?? localSuggestions;
 
   async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -362,26 +394,29 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
     setAddingUserId(user.id);
     try {
       await followUser(user.id);
-      setLocalFollowing((prev) => [...prev, { id: user.id, full_name: user.full_name, avatar_url: user.avatar_url, bio: null }]);
+      setLocalFollowing((prev) => [...prev, { id: user.id, full_name: user.full_name, avatar_url: user.avatar_url, bio: null, email: user.email }]);
       setLocalSuggestions((prev) => prev.filter((u) => u.id !== user.id));
+      setSearchResults((prev) => (prev ? prev.filter((u) => u.id !== user.id) : prev));
+      setFollowingCount((prev) => prev + 1);
     } catch {
-      alert("Nie udało się dodać znajomego.");
+      alert("Nie udało się zacząć obserwować.");
     } finally {
       setAddingUserId(null);
     }
   }
 
-  async function handleUnfollow(userId: string) {
-    setUnfollowingUserId(userId);
+  async function handleUnfollow(targetId: string) {
+    setUnfollowingUserId(targetId);
     try {
-      await unfollowUser(userId);
-      const removed = localFollowing.find((u) => u.id === userId);
-      setLocalFollowing((prev) => prev.filter((u) => u.id !== userId));
+      await unfollowUser(targetId);
+      const removed = localFollowing.find((u) => u.id === targetId);
+      setLocalFollowing((prev) => prev.filter((u) => u.id !== targetId));
+      setFollowingCount((prev) => Math.max(0, prev - 1));
       if (removed) {
-        setLocalSuggestions((prev) => [{ id: removed.id, full_name: removed.full_name, avatar_url: removed.avatar_url, mutual_count: 0 }, ...prev]);
+        setLocalSuggestions((prev) => [{ id: removed.id, full_name: removed.full_name, avatar_url: removed.avatar_url, email: removed.email, mutual_count: 0 }, ...prev]);
       }
     } catch {
-      alert("Nie udało się usunąć znajomego.");
+      alert("Nie udało się przestać obserwować.");
     } finally {
       setUnfollowingUserId(null);
     }
@@ -395,7 +430,7 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
   }
 
   return (
-    <div className="mx-auto min-h-dvh max-w-2xl bg-[#080810] pb-28 text-white">
+    <div className="mx-auto min-h-dvh w-full max-w-2xl overflow-x-hidden bg-[#080810] pb-28 text-white">
       {/* Header */}
       <header className="flex items-center justify-between px-4 pb-2 pt-5">
         <Link href="/events" className="text-zinc-400 hover:text-white">
@@ -426,8 +461,17 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
             onChange={handleAvatarChange}
             disabled={uploadingAvatar}
           />
-          {/* Outer ring - blue border with gap */}
-          <div style={{ width: 96, height: 96, borderRadius: "50%", background: "linear-gradient(135deg, #a855f7, #7c3aed, #4f46e5)", padding: 3, position: "relative" }}>
+          {/* Outer ring — kolorowy gdy aktywna relacja */}
+          <div style={{
+            width: 96,
+            height: 96,
+            borderRadius: "50%",
+            background: hasActiveStory
+              ? "linear-gradient(135deg, #a855f7, #7c3aed, #4f46e5)"
+              : "linear-gradient(135deg, #3f3f46, #52525b, #3f3f46)",
+            padding: 3,
+            position: "relative",
+          }}>
             <div style={{ width: "100%", height: "100%", borderRadius: "50%", background: "#080810", padding: 2 }}>
               <div style={{ width: "100%", height: "100%", borderRadius: "50%", overflow: "hidden", position: "relative" }}>
                 {currentAvatarUrl ? (
@@ -562,21 +606,181 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
         </div>
       )}
 
-      {/* Stats */}
-      <div className="mt-4 flex w-full">
-        <div className="flex flex-1 flex-col items-center gap-0.5 py-3">
-          <span className="text-xl font-bold leading-none text-white">{followers}</span>
-          <span style={{ color: "#71717a", fontSize: "11px" }}>Obserwujący</span>
-        </div>
-        <div className="flex flex-1 flex-col items-center gap-0.5 py-3">
-          <span className="text-xl font-bold leading-none text-white">{following}</span>
-          <span style={{ color: "#71717a", fontSize: "11px" }}>Obserwujesz</span>
-        </div>
-        <div className="flex flex-1 flex-col items-center gap-0.5 py-3">
-          <span className="text-xl font-bold leading-none text-white">{goingEvents.length}</span>
-          <span style={{ color: "#71717a", fontSize: "11px" }}>Wydarzeń</span>
-        </div>
+      {/* Stats — klikalne listy */}
+      <div className="mx-4 mt-4 flex w-[calc(100%-2rem)] overflow-hidden rounded-2xl border border-white/10 bg-[#0f0f18]">
+        {([
+          { key: "followers" as const, value: followers, label: "Obserwujący" },
+          { key: "following" as const, value: followingCount, label: "Obserwowani" },
+          { key: "events" as const, value: goingEvents.length, label: "Odbyte" },
+          { key: "badges" as const, value: badgesWithProgress.filter((b) => b.unlocked).length, label: "Odznaki" },
+        ]).map((stat, index) => (
+          <button
+            key={stat.key}
+            type="button"
+            onClick={() => setStatsPanel(stat.key)}
+            className={`flex min-w-0 flex-1 cursor-pointer flex-col items-center gap-0.5 px-1 py-3.5 transition-colors hover:bg-white/5 active:bg-white/10 ${
+              index > 0 ? "border-l border-white/10" : ""
+            }`}
+          >
+            <span className="text-xl font-bold leading-none text-white">{stat.value}</span>
+            <span className="max-w-full truncate text-[11px] text-zinc-500">{stat.label}</span>
+          </button>
+        ))}
       </div>
+
+      {/* Panel listy ze statystyk */}
+      {statsPanel && (
+        <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center">
+          <button
+            type="button"
+            aria-label="Zamknij"
+            className="absolute inset-0 bg-black/60"
+            onClick={() => setStatsPanel(null)}
+          />
+          <div className="relative z-10 flex max-h-[80dvh] w-full max-w-2xl flex-col rounded-t-3xl border border-white/10 bg-[#0f0f18] sm:rounded-3xl sm:mx-4">
+            <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+              <h2 className="text-sm font-semibold text-white">
+                {statsPanel === "followers" && `Obserwujący (${followerUsers.length})`}
+                {statsPanel === "following" && `Obserwowani (${localFollowing.length})`}
+                {statsPanel === "events" && `Odbyte (${goingEvents.length})`}
+                {statsPanel === "badges" && `Odznaki (${badgesWithProgress.filter((b) => b.unlocked).length})`}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setStatsPanel(null)}
+                className="rounded-full p-1.5 text-zinc-400 hover:bg-white/10 hover:text-white"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5">
+                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="overflow-y-auto px-4 py-3 pb-8">
+              {statsPanel === "followers" && (
+                followerUsers.length === 0 ? (
+                  <p className="py-10 text-center text-sm text-zinc-500">Nikt Cię jeszcze nie obserwuje.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {followerUsers.map((person) => {
+                      const name = person.full_name ?? "Użytkownik";
+                      const uInitials = name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
+                      return (
+                        <div key={person.id} className="flex items-center gap-3 rounded-2xl bg-white/5 p-3">
+                          <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full">
+                            {person.avatar_url ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={person.avatar_url} alt="" className="h-full w-full object-cover" />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-700 text-xs font-bold">
+                                {uInitials}
+                              </div>
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-semibold text-white">{name}</p>
+                            <p className="truncate text-xs text-zinc-500">{person.email ?? "Użytkownik IKU"}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
+              )}
+              {statsPanel === "following" && (
+                localFollowing.length === 0 ? (
+                  <p className="py-10 text-center text-sm text-zinc-500">Nie obserwujesz jeszcze nikogo.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {localFollowing.map((person) => {
+                      const name = person.full_name ?? "Użytkownik";
+                      const uInitials = name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
+                      return (
+                        <div key={person.id} className="flex items-center gap-3 rounded-2xl bg-white/5 p-3">
+                          <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full">
+                            {person.avatar_url ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={person.avatar_url} alt="" className="h-full w-full object-cover" />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br from-violet-600 to-purple-700 text-xs font-bold">
+                                {uInitials}
+                              </div>
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-semibold text-white">{name}</p>
+                            <p className="truncate text-xs text-zinc-500">{person.email ?? "Użytkownik IKU"}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleUnfollow(person.id)}
+                            disabled={unfollowingUserId === person.id}
+                            className="shrink-0 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-zinc-300 transition-colors hover:border-red-500/40 hover:text-red-300 disabled:opacity-40"
+                          >
+                            {unfollowingUserId === person.id ? "…" : "Obserwowany"}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
+              )}
+
+              {statsPanel === "events" && (
+                goingEvents.length === 0 ? (
+                  <p className="py-10 text-center text-sm text-zinc-500">Brak odbytych wydarzeń.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {goingEvents.map((event) => (
+                      <Link
+                        key={event.id}
+                        href={`/events/${event.id}`}
+                        onClick={() => setStatsPanel(null)}
+                        className="flex items-center gap-3 rounded-2xl bg-white/5 p-3 transition-colors hover:bg-white/10"
+                      >
+                        <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-white/10">
+                          {event.cover_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={event.cover_url} alt="" className="h-full w-full object-cover" />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center text-lg">🎪</div>
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold text-white">{event.title}</p>
+                          <p className="truncate text-xs text-zinc-500">{event.location}</p>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                )
+              )}
+
+              {statsPanel === "badges" && (() => {
+                const unlocked = badgesWithProgress.filter((b) => b.unlocked);
+                if (unlocked.length === 0) {
+                  return <p className="py-10 text-center text-sm text-zinc-500">Brak odblokowanych odznak.</p>;
+                }
+                return (
+                  <div className="space-y-2">
+                    {unlocked.map((badge) => (
+                      <div key={badge.id} className="flex items-center gap-3 rounded-2xl bg-white/5 p-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-500/20 text-lg">
+                          {badge.emoji}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold text-white">{badge.label}</p>
+                          <p className="truncate text-xs text-zinc-500">{badge.description}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Action buttons */}
       <div className="mt-4 flex gap-3 px-4">
@@ -599,28 +803,28 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
       </div>
 
       {/* Tabs */}
-      <div style={{ display: "flex", border: "1px solid rgba(255,255,255,0.10)", borderRadius: "14px", marginTop: "20px", marginLeft: "16px", marginRight: "16px", padding: "4px", gap: "4px" }}>
-        {(["wall", "badges", "znajomi", "historia"] as Tab[]).map((tab) => {
+      <div className="mx-4 mt-5 flex min-w-0 gap-1 overflow-hidden rounded-[14px] border border-white/10 p-1">
+        {(["wall", "badges", "obserwowani", "historia"] as Tab[]).map((tab) => {
           const labels: Record<Tab, string> = {
             wall: "Wall",
             badges: "Odznaki",
-            znajomi: "Znajomi",
+            obserwowani: "Obserwuj",
             historia: "Historia",
           };
           const icons: Record<Tab, React.ReactNode> = {
             wall: (
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="15" height="15">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="15" height="15" className="shrink-0">
                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
               </svg>
             ),
             badges: (
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="15" height="15">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="15" height="15" className="shrink-0">
                 <circle cx="12" cy="8" r="6" />
                 <path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11" />
               </svg>
             ),
-            znajomi: (
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="15" height="15">
+            obserwowani: (
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="15" height="15" className="shrink-0">
                 <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
                 <circle cx="9" cy="7" r="4" />
                 <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
@@ -628,7 +832,7 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
               </svg>
             ),
             historia: (
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="15" height="15">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="15" height="15" className="shrink-0">
                 <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
                 <line x1="16" y1="2" x2="16" y2="6" />
                 <line x1="8" y1="2" x2="8" y2="6" />
@@ -642,38 +846,19 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
               key={tab}
               type="button"
               onClick={() => setActiveTab(tab)}
-              style={{
-                flex: 1,
-                display: "flex",
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "5px",
-                paddingTop: "7px",
-                paddingBottom: "7px",
-                paddingLeft: "10px",
-                paddingRight: "10px",
-                fontSize: "11px",
-                fontWeight: 500,
-                background: isActive ? "#3b82f6" : "none",
-                border: "none",
-                borderRadius: "10px",
-                color: isActive ? "#ffffff" : "#71717a",
-                cursor: "pointer",
-                transition: "color 0.15s, background 0.15s",
-                marginBottom: "0",
-                whiteSpace: "nowrap",
-              }}
+              className={`flex min-w-0 flex-1 cursor-pointer items-center justify-center gap-1 rounded-[10px] px-1.5 py-1.5 text-[11px] font-medium transition-colors ${
+                isActive ? "bg-blue-500 text-white" : "bg-transparent text-zinc-500"
+              }`}
             >
               {icons[tab]}
-              {labels[tab]}
+              <span className="truncate">{labels[tab]}</span>
             </button>
           );
         })}
       </div>
 
       {/* Tab content */}
-      <main className="px-4 pt-4">
+      <main className="min-w-0 w-full overflow-x-hidden px-4 pt-4">
 
         {/* Wall */}
         {activeTab === "wall" && (
@@ -693,7 +878,7 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
                   <textarea
                     value={postContent}
                     onChange={(e) => setPostContent(e.target.value)}
-                    placeholder="Co słychać? Podziel się z znajomymi…"
+                    placeholder="Co słychać? Podziel się z obserwującymi…"
                     maxLength={500}
                     rows={2}
                     className="w-full resize-none bg-transparent text-sm text-white placeholder-zinc-600 outline-none"
@@ -1119,14 +1304,14 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
           );
         })()}
 
-        {/* Znajomi */}
-        {activeTab === "znajomi" && (
+        {/* Obserwowani */}
+        {activeTab === "obserwowani" && (
           <div className="space-y-5 pb-4">
 
-            {/* Obserwowani */}
+            {/* Osoby, które obserwujesz */}
             <div>
               <h3 className="mb-3 text-sm font-semibold text-zinc-300">
-                Znajomi ({localFollowing.length})
+                Obserwowani ({localFollowing.length})
               </h3>
 
               {localFollowing.length === 0 ? (
@@ -1165,26 +1350,11 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
                           type="button"
                           onClick={() => handleUnfollow(user.id)}
                           disabled={unfollowingUserId === user.id}
-                          className="shrink-0 rounded-full p-1.5 text-zinc-600 transition-colors hover:text-zinc-300 disabled:opacity-40"
+                          className="shrink-0 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-zinc-300 transition-colors hover:border-red-500/40 hover:text-red-300 disabled:opacity-40"
                           title="Przestań obserwować"
                         >
-                          {unfollowingUserId === user.id ? (
-                            <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
-                            </svg>
-                          ) : (
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4">
-                              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
-                              <circle cx="9" cy="7" r="4"/>
-                              <line x1="22" y1="11" x2="16" y2="11"/>
-                            </svg>
-                          )}
+                          {unfollowingUserId === user.id ? "…" : "Obserwowany"}
                         </button>
-
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4 shrink-0 text-zinc-600">
-                          <polyline points="9 18 15 12 9 6"/>
-                        </svg>
                       </div>
                     );
                   })}
@@ -1192,17 +1362,48 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
               )}
             </div>
 
-            {/* Możesz znać */}
-            {localSuggestions.length > 0 && (
-              <div>
-                <h3 className="mb-3 text-sm font-semibold text-zinc-300">Możesz znać</h3>
+            {/* Propozycje do obserwowania */}
+            <div>
+              <h3 className="mb-3 text-sm font-semibold text-zinc-300">Proponowani</h3>
+
+              <div className="relative mb-3">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500"
+                >
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+                <input
+                  type="search"
+                  value={suggestQuery}
+                  onChange={(e) => setSuggestQuery(e.target.value)}
+                  placeholder="Szukaj użytkowników…"
+                  className="w-full rounded-2xl border border-white/10 bg-white/5 py-2.5 pl-10 pr-3 text-sm text-white placeholder-zinc-600 outline-none focus:border-blue-500/50"
+                />
+              </div>
+
+              {searchingUsers ? (
+                <p className="py-6 text-center text-xs text-zinc-600">Szukam…</p>
+              ) : displayedSuggestions.length === 0 ? (
+                <div className="rounded-2xl bg-white/5 px-4 py-8 text-center">
+                  <p className="text-sm text-zinc-500">
+                    {suggestQuery.trim()
+                      ? "Nie znaleziono użytkowników."
+                      : "Brak nowych propozycji do obserwowania."}
+                  </p>
+                </div>
+              ) : (
                 <div className="space-y-2">
-                  {localSuggestions.map((user) => {
+                  {displayedSuggestions.map((user) => {
                     const name = user.full_name ?? "Użytkownik";
                     const uInitials = name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
                     return (
                       <div key={user.id} className="flex items-center gap-3 rounded-2xl bg-white/5 p-3">
-                        {/* Avatar */}
                         <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full">
                           {user.avatar_url ? (
                             // eslint-disable-next-line @next/next/no-img-element
@@ -1214,17 +1415,17 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
                           )}
                         </div>
 
-                        {/* Name + mutual */}
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-semibold text-white">{name}</p>
-                          {user.mutual_count > 0 ? (
-                            <p className="truncate text-xs text-zinc-500">{user.mutual_count} wspólnych znajomych</p>
+                          {user.email ? (
+                            <p className="truncate text-xs text-zinc-500">{user.email}</p>
+                          ) : user.mutual_count > 0 ? (
+                            <p className="truncate text-xs text-zinc-500">{user.mutual_count} wspólnych obserwujących</p>
                           ) : (
                             <p className="truncate text-xs text-zinc-600">Użytkownik IKU</p>
                           )}
                         </div>
 
-                        {/* Follow button */}
                         <button
                           type="button"
                           onClick={() => handleFollow(user)}
@@ -1244,18 +1445,14 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
                               <line x1="22" y1="11" x2="16" y2="11"/>
                             </svg>
                           )}
-                          Dodaj
+                          Obserwuj
                         </button>
                       </div>
                     );
                   })}
                 </div>
-              </div>
-            )}
-
-            {localSuggestions.length === 0 && localFollowing.length > 0 && (
-              <p className="text-center text-xs text-zinc-700">Brak nowych sugestii znajomych.</p>
-            )}
+              )}
+            </div>
           </div>
         )}
       </main>

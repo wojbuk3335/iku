@@ -12,5 +12,5 @@ export default async function NotificationsRoute() {
 
   const notifications = await getNotifications();
 
-  return <NotificationsPage notifications={notifications} />;
+  return <NotificationsPage notifications={notifications} userId={user.id} />;
 }

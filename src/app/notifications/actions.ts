@@ -12,6 +12,8 @@ export type NotificationType =
   | "friend_interested"
   | "nearby_event"
   | "friend_badge"
+  | "new_follower"
+  | "unfollowed"
   | "system";
 
 export type Notification = {

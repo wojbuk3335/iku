@@ -19,6 +19,11 @@
   }
 }
 
+html {
+  /* Zapobiega skokom layoutu przy pojawianiu/znikaniu scrollbara */
+  scrollbar-gutter: stable;
+}
+
 body {
   background: #080810;
   color: #ededed;

@@ -4,7 +4,8 @@ import { getUserEventsByStatus } from "@/lib/profile/get-user-events";
 import { getFollowCounts } from "@/lib/profile/get-follow-counts";
 import { getAllBadgesWithProgress } from "@/lib/profile/badges";
 import { getUserPosts } from "@/app/profile/wall-actions";
-import { getFollowingUsers, getSuggestedUsers } from "@/app/profile/znajomi-actions";
+import { getFollowingUsers, getFollowerUsers, getSuggestedUsers } from "@/app/profile/znajomi-actions";
+import { userHasActiveStory } from "@/app/stories/actions";
 import { ProfilePage } from "@/components/profile/profile-page";
 
 export const dynamic = "force-dynamic";
@@ -20,14 +21,16 @@ export default async function Profile() {
   const { checkAndAwardBadges } = await import("@/lib/profile/badges");
   await checkAndAwardBadges(user.id).catch(() => {});
 
-  const [goingEvents, savedEvents, followCounts, badgesWithProgress, posts, followingUsers, suggestedUsers] = await Promise.all([
+  const [goingEvents, savedEvents, followCounts, badgesWithProgress, posts, followingUsers, followerUsers, suggestedUsers, hasActiveStory] = await Promise.all([
     getUserEventsByStatus(user.id, "going"),
     getUserEventsByStatus(user.id, "saved"),
     getFollowCounts(user.id).catch(() => ({ followers: 0, following: 0 })),
     getAllBadgesWithProgress(user.id).catch(() => []),
     getUserPosts(user.id).catch(() => []),
     getFollowingUsers(user.id).catch(() => []),
+    getFollowerUsers(user.id).catch(() => []),
     getSuggestedUsers(user.id).catch(() => []),
+    userHasActiveStory(user.id).catch(() => false),
   ]);
 
   return (
@@ -44,7 +47,9 @@ export default async function Profile() {
       badgesWithProgress={badgesWithProgress}
       posts={posts}
       followingUsers={followingUsers}
+      followerUsers={followerUsers}
       suggestedUsers={suggestedUsers}
+      hasActiveStory={hasActiveStory}
     />
   );
 }

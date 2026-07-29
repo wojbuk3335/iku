@@ -36,6 +36,7 @@ export async function updateInterests(interests: string[]): Promise<void> {
 export async function updateUserProfile(input: {
   fullName: string;
   birthDate: string;
+  isPrivate: boolean;
 }): Promise<void> {
   const supabase = await createClient();
   const {
@@ -57,6 +58,7 @@ export async function updateUserProfile(input: {
     .update({
       full_name: fullName,
       birth_date: input.birthDate,
+      is_private: input.isPrivate,
     })
     .eq("id", user.id);
 

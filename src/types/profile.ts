@@ -11,4 +11,5 @@ export type Profile = {
   avatar_url: string | null;
   full_name: string | null;
   birth_date: string | null;
+  is_private?: boolean;
 };
