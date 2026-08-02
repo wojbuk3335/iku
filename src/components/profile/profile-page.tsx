@@ -218,6 +218,44 @@ export function ProfilePage({
   const [followingThisProfile, setFollowingThisProfile] = useState(initialIsFollowing);
   const [togglingFollowProfile, setTogglingFollowProfile] = useState(false);
 
+  // Przy zmianie profilu (nawigacja /profile/A → /profile/B) zsynchronizuj lokalny stan z propsami
+  useEffect(() => {
+    setLocalPosts(posts);
+    setCurrentAvatarUrl(avatarUrl);
+    setBioValue(bio ?? "");
+    setNameValue(fullName ?? "");
+    setLocationValue(initialLocation ?? "");
+    setLocalFollowing(followingUsers);
+    setLocalSuggestions(suggestedUsers);
+    setFollowingCount(following);
+    setFollowingThisProfile(initialIsFollowing);
+    setActiveTab("posty");
+    setStatsPanel(null);
+    setComposeOpen(false);
+    setEditingBio(false);
+    setEditingName(false);
+    setEditingLocation(false);
+    setSuggestQuery("");
+    setSearchResults(null);
+    if (
+      initialLocation &&
+      initialLocationLat != null &&
+      initialLocationLng != null
+    ) {
+      setSelectedLocation({
+        location: initialLocation,
+        location_name: initialLocationName,
+        latitude: initialLocationLat,
+        longitude: initialLocationLng,
+        place_id: initialLocationPlaceId,
+      });
+    } else {
+      setSelectedLocation(null);
+    }
+    // Tylko przy zmianie użytkownika profilu — nie przy każdym odświeżeniu propsów tego samego profilu
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
   const initials = getInitials(email);
   const avatarGradient = getAvatarColor(email);
   const fallbackName = email.split("@")[0].replace(/[._-]/g, " ");

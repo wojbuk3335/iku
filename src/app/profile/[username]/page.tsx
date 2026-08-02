@@ -129,6 +129,7 @@ export default async function PublicProfilePage({
 
   return (
     <ProfilePage
+      key={data.userId}
       {...data}
       isOwner={isOwner}
     />

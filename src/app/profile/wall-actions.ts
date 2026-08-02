@@ -49,7 +49,7 @@ export async function createPost(content: string, imageUrl?: string | null, even
   }).select("id").single();
 
   if (error) throw new Error(error.message);
-  revalidatePath("/profile");
+  revalidatePath("/profile", "layout");
   revalidatePath("/post", "layout");
   return data.id;
 }
@@ -73,7 +73,7 @@ export async function toggleReaction(postId: string): Promise<void> {
     await supabase.from("post_reactions").insert({ post_id: postId, user_id: user.id });
   }
 
-  revalidatePath("/profile");
+  revalidatePath("/profile", "layout");
   revalidatePath(`/post/${postId}`);
 }
 
@@ -262,6 +262,6 @@ export async function createComment(postId: string, content: string): Promise<vo
   });
 
   if (error) throw new Error(error.message);
-  revalidatePath("/profile");
+  revalidatePath("/profile", "layout");
   revalidatePath(`/post/${postId}`);
 }
