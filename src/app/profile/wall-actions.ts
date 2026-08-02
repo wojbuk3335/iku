@@ -12,8 +12,10 @@ export type Post = {
   author_name: string | null;
   author_avatar: string | null;
   author_email: string;
+  author_username: string | null;
   event_id: string | null;
   event_title: string | null;
+  event_location: string | null;
   reaction_count: number;
   user_reacted: boolean;
   comment_count: number;
@@ -30,7 +32,7 @@ export type Comment = {
   author_email: string;
 };
 
-export async function createPost(content: string, imageUrl?: string | null, eventId?: string): Promise<void> {
+export async function createPost(content: string, imageUrl?: string | null, eventId?: string): Promise<string> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Musisz być zalogowany.");
@@ -39,15 +41,17 @@ export async function createPost(content: string, imageUrl?: string | null, even
   if (!trimmed && !imageUrl) throw new Error("Post nie może być pusty.");
   if (trimmed.length > 500) throw new Error("Post może mieć max 500 znaków.");
 
-  const { error } = await supabase.from("posts").insert({
+  const { data, error } = await supabase.from("posts").insert({
     user_id: user.id,
     content: trimmed,
     image_url: imageUrl ?? null,
     event_id: eventId ?? null,
-  });
+  }).select("id").single();
 
   if (error) throw new Error(error.message);
   revalidatePath("/profile");
+  revalidatePath("/post", "layout");
+  return data.id;
 }
 
 export async function toggleReaction(postId: string): Promise<void> {
@@ -70,6 +74,64 @@ export async function toggleReaction(postId: string): Promise<void> {
   }
 
   revalidatePath("/profile");
+  revalidatePath(`/post/${postId}`);
+}
+
+type ProfileJoin = {
+  full_name: string | null;
+  avatar_url: string | null;
+  email: string;
+  username: string | null;
+};
+
+type EventJoin = {
+  title: string;
+  location: string | null;
+  location_name: string | null;
+};
+
+function mapPostRow(
+  row: {
+    id: string;
+    content: string;
+    created_at: string;
+    user_id: string;
+    event_id: string | null;
+    image_url?: string | null;
+    profiles: unknown;
+    events: unknown;
+    post_reactions?: { user_id: string }[] | null;
+    post_comments?: { id: string }[] | null;
+  },
+  currentUserId: string | undefined,
+  imageUrlFallback?: string | null,
+): Post {
+  const profile = row.profiles as ProfileJoin | null;
+  const event = row.events as EventJoin | null;
+  const reactions = (row.post_reactions ?? []) as { user_id: string }[];
+  const comments = (row.post_comments ?? []) as { id: string }[];
+  const locationLabel =
+    event?.location_name?.trim() ||
+    event?.location?.trim() ||
+    null;
+
+  return {
+    id: row.id,
+    content: row.content,
+    image_url: row.image_url ?? imageUrlFallback ?? null,
+    created_at: row.created_at,
+    user_id: row.user_id,
+    author_name: profile?.full_name ?? null,
+    author_avatar: profile?.avatar_url ?? null,
+    author_email: profile?.email ?? "",
+    author_username: profile?.username ?? null,
+    event_id: row.event_id,
+    event_title: event?.title ?? null,
+    event_location: locationLabel,
+    reaction_count: reactions.length,
+    user_reacted: reactions.some((r) => r.user_id === currentUserId),
+    comment_count: comments.length,
+  };
 }
 
 export async function getUserPosts(userId: string): Promise<Post[]> {
@@ -79,9 +141,9 @@ export async function getUserPosts(userId: string): Promise<Post[]> {
   const { data, error } = await supabase
     .from("posts")
     .select(`
-      id, content, created_at, user_id, event_id,
-      profiles!posts_user_id_fkey(full_name, avatar_url, email),
-      events(title),
+      id, content, created_at, user_id, event_id, image_url,
+      profiles!posts_user_id_fkey(full_name, avatar_url, email, username),
+      events(title, location, location_name),
       post_reactions(user_id),
       post_comments(id)
     `)
@@ -89,46 +151,67 @@ export async function getUserPosts(userId: string): Promise<Post[]> {
     .order("created_at", { ascending: false });
 
   if (error) {
-    console.error("getUserPosts:", error.message);
-    return [];
-  }
-
-  // Osobne zapytanie o image_url (może nie istnieć przed migracją)
-  const ids = (data ?? []).map((r) => r.id);
-  const imageMap: Record<string, string | null> = {};
-  if (ids.length > 0) {
-    const { data: imgData } = await supabase
+    // Fallback bez username / image_url / location (starszy schemat)
+    const fallback = await supabase
       .from("posts")
-      .select("id, image_url")
-      .in("id", ids)
-      .then((res) => (res.error ? { data: null } : res));
-    for (const row of imgData ?? []) {
-      imageMap[row.id] = (row as unknown as { image_url: string | null }).image_url ?? null;
+      .select(`
+        id, content, created_at, user_id, event_id,
+        profiles!posts_user_id_fkey(full_name, avatar_url, email),
+        events(title),
+        post_reactions(user_id),
+        post_comments(id)
+      `)
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+
+    if (fallback.error) {
+      console.error("getUserPosts:", fallback.error.message);
+      return [];
     }
+
+    const ids = (fallback.data ?? []).map((r) => r.id);
+    const imageMap: Record<string, string | null> = {};
+    if (ids.length > 0) {
+      const { data: imgData } = await supabase
+        .from("posts")
+        .select("id, image_url")
+        .in("id", ids)
+        .then((res) => (res.error ? { data: null } : res));
+      for (const row of imgData ?? []) {
+        imageMap[row.id] = (row as unknown as { image_url: string | null }).image_url ?? null;
+      }
+    }
+
+    return (fallback.data ?? []).map((row) =>
+      mapPostRow(row, user?.id, imageMap[row.id] ?? null),
+    );
   }
 
-  return (data ?? []).map((row) => {
-    const profile = row.profiles as unknown as { full_name: string | null; avatar_url: string | null; email: string } | null;
-    const event = row.events as unknown as { title: string } | null;
-    const reactions = (row.post_reactions ?? []) as { user_id: string }[];
-    const comments = (row.post_comments ?? []) as { id: string }[];
+  return (data ?? []).map((row) => mapPostRow(row, user?.id));
+}
 
-    return {
-      id: row.id,
-      content: row.content,
-      image_url: imageMap[row.id] ?? null,
-      created_at: row.created_at,
-      user_id: row.user_id,
-      author_name: profile?.full_name ?? null,
-      author_avatar: profile?.avatar_url ?? null,
-      author_email: profile?.email ?? "",
-      event_id: row.event_id,
-      event_title: event?.title ?? null,
-      reaction_count: reactions.length,
-      user_reacted: reactions.some((r) => r.user_id === user?.id),
-      comment_count: comments.length,
-    };
-  });
+export async function getPostById(postId: string): Promise<Post | null> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  const { data, error } = await supabase
+    .from("posts")
+    .select(`
+      id, content, created_at, user_id, event_id, image_url,
+      profiles!posts_user_id_fkey(full_name, avatar_url, email, username),
+      events(title, location, location_name),
+      post_reactions(user_id),
+      post_comments(id)
+    `)
+    .eq("id", postId)
+    .maybeSingle();
+
+  if (error || !data) {
+    if (error) console.error("getPostById:", error.message);
+    return null;
+  }
+
+  return mapPostRow(data, user?.id);
 }
 
 export async function getPostComments(postId: string): Promise<Comment[]> {
@@ -180,4 +263,5 @@ export async function createComment(postId: string, content: string): Promise<vo
 
   if (error) throw new Error(error.message);
   revalidatePath("/profile");
+  revalidatePath(`/post/${postId}`);
 }

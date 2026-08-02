@@ -110,7 +110,7 @@ export function CreateEventForm() {
   const isValid = title.trim() && categories.length > 0 && date && time && endDate && endTime && selectedLocation;
 
   return (
-    <div className="mx-auto min-h-dvh max-w-2xl bg-[#080810] pb-10 text-white">
+    <div className="mx-auto min-h-dvh max-w-md bg-[#080810] pb-10 text-white">
       {/* Header */}
       <header className="flex items-center px-4 pb-2 pt-5">
         <button

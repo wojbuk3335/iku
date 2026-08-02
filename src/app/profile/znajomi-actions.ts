@@ -9,6 +9,7 @@ export type FollowingUser = {
   avatar_url: string | null;
   bio: string | null;
   email: string | null;
+  username: string | null;
 };
 
 export type SuggestedUser = {
@@ -16,6 +17,7 @@ export type SuggestedUser = {
   full_name: string | null;
   avatar_url: string | null;
   email: string | null;
+  username: string | null;
   mutual_count: number;
 };
 
@@ -37,7 +39,7 @@ export async function getFollowingUsers(userId: string): Promise<FollowingUser[]
 
   const { data: profiles, error: profilesError } = await supabase
     .from("profiles")
-    .select("id, full_name, avatar_url, bio, email")
+    .select("id, full_name, avatar_url, bio, email, username")
     .in("id", ids);
 
   if (profilesError) {
@@ -66,7 +68,7 @@ export async function getFollowerUsers(userId: string): Promise<FollowingUser[]>
 
   const { data: profiles, error: profilesError } = await supabase
     .from("profiles")
-    .select("id, full_name, avatar_url, bio, email")
+    .select("id, full_name, avatar_url, bio, email, username")
     .in("id", ids);
 
   if (profilesError) {
@@ -99,7 +101,7 @@ export async function getSuggestedUsers(userId: string): Promise<SuggestedUser[]
   // Fetch candidate profiles (regular users only — no admins/creators)
   let profilesQuery = supabase
     .from("profiles")
-    .select("id, full_name, avatar_url, email")
+    .select("id, full_name, avatar_url, email, username")
     .eq("role", "user")
     .eq("is_private", false)
     .neq("id", userId)
@@ -150,22 +152,32 @@ export async function searchUsers(query: string): Promise<SuggestedUser[]> {
     ...(followData ?? []).map((f) => f.following_id),
   ]);
 
-  const { data: candidates, error } = await supabase
+  const { data: byName, error: nameError } = await supabase
     .from("profiles")
-    .select("id, full_name, avatar_url, email")
+    .select("id, full_name, avatar_url, email, username")
     .eq("role", "user")
     .eq("is_private", false)
     .ilike("full_name", `%${q}%`)
     .limit(20);
 
-  if (error) {
-    console.error("searchUsers:", error.message);
-    return [];
+  const { data: byUsername, error: usernameError } = await supabase
+    .from("profiles")
+    .select("id, full_name, avatar_url, email, username")
+    .eq("role", "user")
+    .eq("is_private", false)
+    .ilike("username", `%${q}%`)
+    .limit(20);
+
+  if (nameError) console.error("searchUsers name:", nameError.message);
+  if (usernameError) console.error("searchUsers username:", usernameError.message);
+
+  const merged = new Map<string, SuggestedUser>();
+  for (const p of [...(byName ?? []), ...(byUsername ?? [])]) {
+    if (excludeIds.has(p.id)) continue;
+    merged.set(p.id, { ...p, mutual_count: 0 });
   }
 
-  return (candidates ?? [])
-    .filter((p) => !excludeIds.has(p.id))
-    .map((p) => ({ ...p, mutual_count: 0 }) as SuggestedUser);
+  return Array.from(merged.values()).slice(0, 20);
 }
 
 export async function followUser(targetUserId: string): Promise<void> {

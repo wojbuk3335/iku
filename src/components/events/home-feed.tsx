@@ -117,7 +117,7 @@ export function HomeFeed({ events, interests, goingCounts, storyGroups, currentU
     .join(", ");
 
   return (
-    <div className="mx-auto min-h-dvh max-w-2xl bg-[#080810] pb-28 text-white">
+    <div className="mx-auto min-h-dvh max-w-md bg-[#080810] pb-28 text-white">
       <HomeHeader onSearchClick={() => document.getElementById("event-search")?.focus()} />
 
       <div className="px-4 pt-3">

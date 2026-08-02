@@ -29,6 +29,7 @@ export async function updateInterests(interests: string[]): Promise<void> {
 
   if (error) throw new Error(error.message);
   revalidatePath("/settings");
+  revalidatePath("/settings/profil");
   revalidatePath("/profile");
   revalidatePath("/events");
 }
@@ -37,6 +38,7 @@ export async function updateUserProfile(input: {
   fullName: string;
   birthDate: string;
   isPrivate: boolean;
+  username: string;
 }): Promise<void> {
   const supabase = await createClient();
   const {
@@ -53,17 +55,44 @@ export async function updateUserProfile(input: {
     throw new Error("Podaj poprawną datę urodzenia (min. 13 lat).");
   }
 
+  const { normalizeUsername, isValidUsername } = await import("@/lib/profile/username");
+  const username = normalizeUsername(input.username);
+  if (!isValidUsername(username)) {
+    throw new Error(
+      "Nazwa użytkownika: 3–30 znaków, litery, cyfry, kropka lub podkreślenie.",
+    );
+  }
+
+  const { data: taken } = await supabase
+    .from("profiles")
+    .select("id")
+    .ilike("username", username)
+    .neq("id", user.id)
+    .maybeSingle();
+
+  if (taken) {
+    throw new Error("Ta nazwa użytkownika jest już zajęta.");
+  }
+
   const { error } = await supabase
     .from("profiles")
     .update({
       full_name: fullName,
       birth_date: input.birthDate,
       is_private: input.isPrivate,
+      username,
     })
     .eq("id", user.id);
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (error.code === "23505") {
+      throw new Error("Ta nazwa użytkownika jest już zajęta.");
+    }
+    throw new Error(error.message);
+  }
   revalidatePath("/settings");
+  revalidatePath("/settings/profil");
   revalidatePath("/profile");
+  revalidatePath(`/profile/${username}`);
   revalidatePath("/admin/stats");
 }

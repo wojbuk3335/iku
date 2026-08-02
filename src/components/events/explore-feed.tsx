@@ -21,7 +21,7 @@ export function ExploreFeed({ events, goingCounts }: ExploreFeedProps) {
       : events.filter((e) => eventHasCategory(e, activeCategory as EventCategory));
 
   return (
-    <div className="mx-auto min-h-dvh max-w-2xl bg-[#080810] pb-28 text-white">
+    <div className="mx-auto min-h-dvh max-w-md bg-[#080810] pb-28 text-white">
       {/* Header */}
       <header className="sticky top-0 z-40 bg-[#080810]/95 backdrop-blur-md">
         <div className="px-4 pb-3 pt-5">

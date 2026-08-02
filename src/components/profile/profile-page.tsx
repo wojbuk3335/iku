@@ -2,16 +2,18 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { BottomNav } from "@/components/events/bottom-nav";
+import { LocationPicker } from "@/components/events/location-picker";
 import { ProfileAccountMenu } from "@/components/profile/profile-account-menu";
-import { updateBio, updateAvatarUrl, updateFullName } from "@/app/profile/actions";
-import { createPost, toggleReaction, getPostComments, createComment } from "@/app/profile/wall-actions";
+import { updateBio, updateAvatarUrl, updateFullName, updateLocation } from "@/app/profile/actions";
+import { createPost } from "@/app/profile/wall-actions";
 import { followUser, unfollowUser, searchUsers } from "@/app/profile/znajomi-actions";
-import { getEventCategories } from "@/lib/events/category-style";
 import type { Event } from "@/types/event";
+import type { EventLocation } from "@/types/location";
 import type { BadgeWithProgress } from "@/lib/profile/badges";
-import type { Post, Comment } from "@/app/profile/wall-actions";
+import type { Post } from "@/app/profile/wall-actions";
 import type { FollowingUser, SuggestedUser } from "@/app/profile/znajomi-actions";
 
 type ProfilePageProps = {
@@ -19,9 +21,14 @@ type ProfilePageProps = {
   bio: string | null;
   avatarUrl: string | null;
   fullName: string | null;
+  username: string;
+  location?: string | null;
+  locationName?: string | null;
+  locationLat?: number | null;
+  locationLng?: number | null;
+  locationPlaceId?: string | null;
   userId: string;
-  goingEvents: Event[];
-  savedEvents: Event[];
+  savedEvents?: Event[];
   followers: number;
   following: number;
   badgesWithProgress: BadgeWithProgress[];
@@ -30,6 +37,8 @@ type ProfilePageProps = {
   followerUsers: FollowingUser[];
   suggestedUsers: SuggestedUser[];
   hasActiveStory?: boolean;
+  isOwner?: boolean;
+  isFollowing?: boolean;
 };
 
 function getInitials(email: string): string {
@@ -56,8 +65,14 @@ function getAvatarColor(email: string): string {
   return colors[index];
 }
 
-type Tab = "wall" | "badges" | "obserwowani" | "historia";
-type StatsPanel = "followers" | "following" | "events" | "badges" | null;
+type Tab = "posty" | "badges" | "saved";
+type StatsPanel = "followers" | "following" | "badges" | "posts" | null;
+
+function formatCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1).replace(/\.0$/, "")}K`;
+  return String(n);
+}
 function rarityColor(rarity: string): string {
   switch (rarity) {
     case "Rzadka":     return "#3b82f6";
@@ -130,8 +145,33 @@ function BadgeIcon({ id, size = 20, color = "currentColor" }: { id: string; size
   }
 }
 
-export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEvents, savedEvents, followers, following, badgesWithProgress, posts, followingUsers, followerUsers, suggestedUsers, hasActiveStory = false }: ProfilePageProps) {
-  const [activeTab, setActiveTab] = useState<Tab>("wall");
+export function ProfilePage({
+  email,
+  bio,
+  avatarUrl,
+  fullName,
+  username: profileUsername,
+  location: initialLocation = null,
+  locationName: initialLocationName = null,
+  locationLat: initialLocationLat = null,
+  locationLng: initialLocationLng = null,
+  locationPlaceId: initialLocationPlaceId = null,
+  userId,
+  savedEvents = [],
+  followers,
+  following,
+  badgesWithProgress,
+  posts,
+  followingUsers,
+  followerUsers,
+  suggestedUsers,
+  hasActiveStory = false,
+  isOwner = true,
+  isFollowing: initialIsFollowing = false,
+}: ProfilePageProps) {
+  const router = useRouter();
+  const [activeTab, setActiveTab] = useState<Tab>("posty");
+  const [composeOpen, setComposeOpen] = useState(false);
   const [statsPanel, setStatsPanel] = useState<StatsPanel>(null);
   const [signingOut, setSigningOut] = useState(false);
   const [editingBio, setEditingBio] = useState(false);
@@ -143,18 +183,30 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
   const [postImagePreview, setPostImagePreview] = useState<string | null>(null);
   const [uploadingPostImage, setUploadingPostImage] = useState(false);
   const [localPosts, setLocalPosts] = useState<Post[]>(posts);
-  const [reactingPostId, setReactingPostId] = useState<string | null>(null);
-  const [openCommentsPostId, setOpenCommentsPostId] = useState<string | null>(null);
-  const [commentsMap, setCommentsMap] = useState<Record<string, Comment[]>>({});
-  const [loadingCommentsId, setLoadingCommentsId] = useState<string | null>(null);
-  const [commentInputs, setCommentInputs] = useState<Record<string, string>>({});
-  const [submittingCommentId, setSubmittingCommentId] = useState<string | null>(null);
-  const [copiedPostId, setCopiedPostId] = useState<string | null>(null);
   const [currentAvatarUrl, setCurrentAvatarUrl] = useState<string | null>(avatarUrl);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState(fullName ?? "");
   const [savingName, setSavingName] = useState(false);
+  const [editingLocation, setEditingLocation] = useState(false);
+  const [locationValue, setLocationValue] = useState(initialLocation ?? "");
+  const [selectedLocation, setSelectedLocation] = useState<EventLocation | null>(() => {
+    if (
+      initialLocation &&
+      initialLocationLat != null &&
+      initialLocationLng != null
+    ) {
+      return {
+        location: initialLocation,
+        location_name: initialLocationName,
+        latitude: initialLocationLat,
+        longitude: initialLocationLng,
+        place_id: initialLocationPlaceId,
+      };
+    }
+    return null;
+  });
+  const [savingLocation, setSavingLocation] = useState(false);
   const [localFollowing, setLocalFollowing] = useState<FollowingUser[]>(followingUsers);
   const [localSuggestions, setLocalSuggestions] = useState<SuggestedUser[]>(suggestedUsers);
   const [followingCount, setFollowingCount] = useState(following);
@@ -163,11 +215,52 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
   const [suggestQuery, setSuggestQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SuggestedUser[] | null>(null);
   const [searchingUsers, setSearchingUsers] = useState(false);
+  const [followingThisProfile, setFollowingThisProfile] = useState(initialIsFollowing);
+  const [togglingFollowProfile, setTogglingFollowProfile] = useState(false);
 
   const initials = getInitials(email);
   const avatarGradient = getAvatarColor(email);
   const fallbackName = email.split("@")[0].replace(/[._-]/g, " ");
   const displayName = nameValue || fallbackName;
+  const username = profileUsername;
+  const unlockedBadges = badgesWithProgress.filter((b) => b.unlocked);
+  const postsCount = localPosts.length;
+
+  async function handleShareProfile() {
+    const url = `${window.location.origin}/profile/${encodeURIComponent(username)}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: displayName,
+          text: `Profil ${displayName} na IKU`,
+          url,
+        });
+      } else {
+        await navigator.clipboard.writeText(url);
+        alert("Link do profilu skopiowany.");
+      }
+    } catch {
+      // cancelled
+    }
+  }
+
+  async function handleToggleFollowProfile() {
+    if (isOwner || togglingFollowProfile) return;
+    setTogglingFollowProfile(true);
+    try {
+      if (followingThisProfile) {
+        await unfollowUser(userId);
+        setFollowingThisProfile(false);
+      } else {
+        await followUser(userId);
+        setFollowingThisProfile(true);
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Nie udało się zmienić obserwowania.");
+    } finally {
+      setTogglingFollowProfile(false);
+    }
+  }
 
   useEffect(() => {
     const q = suggestQuery.trim();
@@ -259,9 +352,9 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
         imageUrl = data.publicUrl;
         setUploadingPostImage(false);
       }
-      await createPost(postContent, imageUrl);
+      const postId = await createPost(postContent, imageUrl);
       const newPost: Post = {
-        id: Date.now().toString(),
+        id: postId,
         content: postContent.trim(),
         image_url: imageUrl,
         created_at: new Date().toISOString(),
@@ -269,8 +362,10 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
         author_name: nameValue || null,
         author_avatar: currentAvatarUrl,
         author_email: email,
+        author_username: username,
         event_id: null,
         event_title: null,
+        event_location: null,
         reaction_count: 0,
         user_reacted: false,
         comment_count: 0,
@@ -278,33 +373,14 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
       setLocalPosts((prev) => [newPost, ...prev]);
       setPostContent("");
       clearPostImage();
+      setComposeOpen(false);
+      setActiveTab("posty");
+      router.push(`/post/${postId}`);
     } catch {
       alert("Nie udało się dodać posta.");
     } finally {
       setPostingContent(false);
       setUploadingPostImage(false);
-    }
-  }
-
-  async function handleReaction(postId: string) {
-    setReactingPostId(postId);
-    try {
-      await toggleReaction(postId);
-      setLocalPosts((prev) =>
-        prev.map((p) =>
-          p.id === postId
-            ? {
-                ...p,
-                user_reacted: !p.user_reacted,
-                reaction_count: p.user_reacted
-                  ? p.reaction_count - 1
-                  : p.reaction_count + 1,
-              }
-            : p,
-        ),
-      );
-    } finally {
-      setReactingPostId(null);
     }
   }
 
@@ -330,63 +406,46 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
     }
   }
 
-  async function handleShare(postId: string) {
-    const url = `${window.location.origin}/profile?post=${postId}`;
-    try {
-      if (navigator.share) {
-        await navigator.share({ url });
-      } else {
-        await navigator.clipboard.writeText(url);
-        setCopiedPostId(postId);
-        setTimeout(() => setCopiedPostId(null), 2000);
-      }
-    } catch {
-      // user cancelled share or clipboard denied
-    }
-  }
-
-  async function handleToggleComments(postId: string) {
-    if (openCommentsPostId === postId) {
-      setOpenCommentsPostId(null);
+  async function handleSaveLocation() {
+    if (!selectedLocation) {
+      alert("Wybierz lokalizację z listy podpowiedzi Google.");
       return;
     }
-    setOpenCommentsPostId(postId);
-    if (!commentsMap[postId]) {
-      setLoadingCommentsId(postId);
-      const comments = await getPostComments(postId);
-      setCommentsMap((prev) => ({ ...prev, [postId]: comments }));
-      setLoadingCommentsId(null);
+    setSavingLocation(true);
+    try {
+      await updateLocation({
+        location: selectedLocation.location,
+        locationName: selectedLocation.location_name,
+        latitude: selectedLocation.latitude,
+        longitude: selectedLocation.longitude,
+        placeId: selectedLocation.place_id,
+      });
+      setLocationValue(selectedLocation.location);
+      setEditingLocation(false);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Nie udało się zapisać lokalizacji.");
+    } finally {
+      setSavingLocation(false);
     }
   }
 
-  async function handleSubmitComment(postId: string) {
-    const content = commentInputs[postId] ?? "";
-    if (!content.trim()) return;
-    setSubmittingCommentId(postId);
+  async function handleClearLocation() {
+    setSavingLocation(true);
     try {
-      await createComment(postId, content);
-      const newComment: Comment = {
-        id: Date.now().toString(),
-        post_id: postId,
-        user_id: userId,
-        content: content.trim(),
-        created_at: new Date().toISOString(),
-        author_name: nameValue || null,
-        author_avatar: currentAvatarUrl,
-        author_email: email,
-      };
-      setCommentsMap((prev) => ({
-        ...prev,
-        [postId]: [...(prev[postId] ?? []), newComment],
-      }));
-      setLocalPosts((prev) =>
-        prev.map((p) => p.id === postId ? { ...p, comment_count: p.comment_count + 1 } : p)
-      );
-      setCommentInputs((prev) => ({ ...prev, [postId]: "" }));
-    } catch {
-      alert("Nie udało się dodać komentarza.");
+      await updateLocation({
+        location: "",
+        locationName: null,
+        latitude: null,
+        longitude: null,
+        placeId: null,
+      });
+      setLocationValue("");
+      setSelectedLocation(null);
+      setEditingLocation(false);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Nie udało się usunąć lokalizacji.");
     } finally {
-      setSubmittingCommentId(null);
+      setSavingLocation(false);
     }
   }
 
@@ -394,7 +453,17 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
     setAddingUserId(user.id);
     try {
       await followUser(user.id);
-      setLocalFollowing((prev) => [...prev, { id: user.id, full_name: user.full_name, avatar_url: user.avatar_url, bio: null, email: user.email }]);
+      setLocalFollowing((prev) => [
+        ...prev,
+        {
+          id: user.id,
+          full_name: user.full_name,
+          avatar_url: user.avatar_url,
+          bio: null,
+          email: user.email,
+          username: user.username,
+        },
+      ]);
       setLocalSuggestions((prev) => prev.filter((u) => u.id !== user.id));
       setSearchResults((prev) => (prev ? prev.filter((u) => u.id !== user.id) : prev));
       setFollowingCount((prev) => prev + 1);
@@ -413,7 +482,7 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
       setLocalFollowing((prev) => prev.filter((u) => u.id !== targetId));
       setFollowingCount((prev) => Math.max(0, prev - 1));
       if (removed) {
-        setLocalSuggestions((prev) => [{ id: removed.id, full_name: removed.full_name, avatar_url: removed.avatar_url, email: removed.email, mutual_count: 0 }, ...prev]);
+        setLocalSuggestions((prev) => [{ id: removed.id, full_name: removed.full_name, avatar_url: removed.avatar_url, email: removed.email, username: removed.username, mutual_count: 0 }, ...prev]);
       }
     } catch {
       alert("Nie udało się przestać obserwować.");
@@ -430,203 +499,287 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
   }
 
   return (
-    <div className="mx-auto min-h-dvh w-full max-w-2xl overflow-x-hidden bg-[#080810] pb-28 text-white">
-      {/* Header */}
-      <header className="flex items-center justify-between px-4 pb-2 pt-5">
-        <Link href="/events" className="text-zinc-400 hover:text-white">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            className="h-6 w-6"
-          >
-            <path d="M19 12H5M12 5l-7 7 7 7" />
-          </svg>
-        </Link>
-        <span className="text-sm font-medium text-zinc-300">
-          @{email.split("@")[0]}
-        </span>
-        <ProfileAccountMenu userEmail={email} />
-      </header>
-
-      {/* Avatar + name */}
-      <div className="flex flex-col items-center px-4 py-6">
-        <label className="group relative cursor-pointer">
-          <input
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            className="sr-only"
-            onChange={handleAvatarChange}
-            disabled={uploadingAvatar}
-          />
-          {/* Outer ring — kolorowy gdy aktywna relacja */}
-          <div style={{
-            width: 96,
-            height: 96,
-            borderRadius: "50%",
-            background: hasActiveStory
-              ? "linear-gradient(135deg, #a855f7, #7c3aed, #4f46e5)"
-              : "linear-gradient(135deg, #3f3f46, #52525b, #3f3f46)",
-            padding: 3,
-            position: "relative",
-          }}>
-            <div style={{ width: "100%", height: "100%", borderRadius: "50%", background: "#080810", padding: 2 }}>
-              <div style={{ width: "100%", height: "100%", borderRadius: "50%", overflow: "hidden", position: "relative" }}>
-                {currentAvatarUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={currentAvatarUrl} alt="Avatar" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
-                ) : (
-                  <div className={`flex h-full w-full items-center justify-center bg-gradient-to-br ${avatarGradient} text-2xl font-bold`}>
-                    {initials}
-                  </div>
-                )}
-                {/* Overlay on hover */}
-                <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 transition-opacity group-hover:opacity-100 z-10" style={{ borderRadius: "50%" }}>
-                  {uploadingAvatar ? (
-                    <svg className="h-6 w-6 animate-spin text-white" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-                    </svg>
-                  ) : (
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-6 w-6 text-white">
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                      <polyline points="17 8 12 3 7 8" />
-                      <line x1="12" y1="3" x2="12" y2="15" />
-                    </svg>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </label>
-        {editingName ? (
-          <div className="mt-3 flex w-full max-w-xs flex-col gap-2">
-            <input
-              type="text"
-              value={nameValue}
-              onChange={(e) => setNameValue(e.target.value)}
-              maxLength={50}
-              placeholder="Twoje imię i nazwisko"
-              className="w-full rounded-xl bg-white/10 px-3 py-2 text-center text-sm text-white placeholder-zinc-500 outline-none focus:ring-1 focus:ring-violet-500"
-              onKeyDown={(e) => e.key === "Enter" && handleSaveName()}
-              autoFocus
-            />
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={handleSaveName}
-                disabled={savingName}
-                className="flex-1 rounded-xl bg-violet-600 py-1.5 text-sm font-medium text-white disabled:opacity-60"
-              >
-                {savingName ? "Zapisywanie…" : "Zapisz"}
-              </button>
-              <button
-                type="button"
-                onClick={() => { setEditingName(false); setNameValue(fullName ?? ""); }}
-                className="flex-1 rounded-xl bg-white/10 py-1.5 text-sm text-zinc-300"
-              >
-                Anuluj
-              </button>
-            </div>
-          </div>
-        ) : (
+    <div className="mx-auto min-h-dvh w-full max-w-md overflow-x-hidden bg-[#080810] pb-28 text-white">
+      {/* Górny pasek — + jak na Instagramie */}
+      {isOwner && (
+        <div className="flex items-center justify-between px-4 pt-4">
           <button
             type="button"
-            onClick={() => setEditingName(true)}
-            className="group mt-3 flex items-center gap-1.5"
+            onClick={() => setComposeOpen(true)}
+            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full text-white transition-colors hover:bg-white/10"
+            title="Nowy post"
+            aria-label="Nowy post"
           >
-            <h1 className="text-lg font-bold capitalize">{displayName}</h1>
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5 text-zinc-600 opacity-0 transition-opacity group-hover:opacity-100">
-              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-6 w-6">
+              <rect x="3" y="3" width="18" height="18" rx="4" />
+              <line x1="12" y1="8" x2="12" y2="16" />
+              <line x1="8" y1="12" x2="16" y2="12" />
             </svg>
           </button>
-        )}
-        <p className="mt-0.5 text-sm text-zinc-500">@{email.split("@")[0]}</p>
-
-        {/* Bio */}
-        {editingBio ? (
-          <div className="mt-3 w-full max-w-xs">
-            <textarea
-              value={bioValue}
-              onChange={(e) => setBioValue(e.target.value)}
-              maxLength={120}
-              rows={2}
-              placeholder="Napisz coś o sobie…"
-              className="w-full resize-none rounded-xl bg-white/10 px-3 py-2 text-sm text-white placeholder-zinc-500 outline-none focus:ring-1 focus:ring-violet-500"
-            />
-            <div className="mt-2 flex gap-2">
-              <button
-                type="button"
-                onClick={handleSaveBio}
-                disabled={savingBio}
-                className="flex-1 rounded-xl bg-violet-600 py-1.5 text-sm font-medium text-white disabled:opacity-60"
-              >
-                {savingBio ? "Zapisywanie…" : "Zapisz"}
-              </button>
-              <button
-                type="button"
-                onClick={() => { setEditingBio(false); setBioValue(bio ?? ""); }}
-                className="flex-1 rounded-xl bg-white/10 py-1.5 text-sm text-zinc-300"
-              >
-                Anuluj
-              </button>
-            </div>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setEditingBio(true)}
-            className="mt-2 max-w-xs text-center text-sm text-zinc-400 hover:text-zinc-200"
-          >
-            {bioValue ? bioValue : (
-              <span className="text-zinc-600 underline-offset-2 hover:underline">
-                + Dodaj bio
-              </span>
-            )}
-          </button>
-        )}
-      </div>
-
-      {/* Badges — unlocked chips in profile header */}
-      {badgesWithProgress.filter((b) => b.unlocked).length > 0 && (
-        <div className="mt-3 flex flex-wrap justify-center gap-2 px-4">
-          {badgesWithProgress.filter((b) => b.unlocked).map((badge) => (
-            <div
-              key={badge.id}
-              title={badge.description}
-              className="flex items-center gap-1.5 rounded-full border border-violet-500/40 bg-violet-500/15 px-3 py-1.5 text-xs font-semibold text-violet-200 shadow-sm"
+          <p className="text-sm font-semibold text-white">@{username}</p>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => void handleShareProfile()}
+              className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full text-zinc-300 transition-colors hover:bg-white/10 hover:text-white"
+              title="Udostępnij profil"
+              aria-label="Udostępnij profil"
             >
-              <span className="text-sm">{badge.emoji}</span>
-              <span>{badge.label}</span>
-            </div>
-          ))}
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+                <circle cx="18" cy="5" r="3" />
+                <circle cx="6" cy="12" r="3" />
+                <circle cx="18" cy="19" r="3" />
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+              </svg>
+            </button>
+            <ProfileAccountMenu userEmail={email} />
+          </div>
         </div>
       )}
 
-      {/* Stats — klikalne listy */}
-      <div className="mx-4 mt-4 flex w-[calc(100%-2rem)] overflow-hidden rounded-2xl border border-white/10 bg-[#0f0f18]">
-        {([
-          { key: "followers" as const, value: followers, label: "Obserwujący" },
-          { key: "following" as const, value: followingCount, label: "Obserwowani" },
-          { key: "events" as const, value: goingEvents.length, label: "Odbyte" },
-          { key: "badges" as const, value: badgesWithProgress.filter((b) => b.unlocked).length, label: "Odznaki" },
-        ]).map((stat, index) => (
-          <button
-            key={stat.key}
-            type="button"
-            onClick={() => setStatsPanel(stat.key)}
-            className={`flex min-w-0 flex-1 cursor-pointer flex-col items-center gap-0.5 px-1 py-3.5 transition-colors hover:bg-white/5 active:bg-white/10 ${
-              index > 0 ? "border-l border-white/10" : ""
-            }`}
-          >
-            <span className="text-xl font-bold leading-none text-white">{stat.value}</span>
-            <span className="max-w-full truncate text-[11px] text-zinc-500">{stat.label}</span>
-          </button>
-        ))}
-      </div>
+      {/* Górka profilu */}
+      <section className={`px-4 ${isOwner ? "pt-3" : "pt-5"}`}>
+        <div className="flex items-start justify-between">
+          {isOwner ? (
+          <label className="group relative cursor-pointer shrink-0">
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="sr-only"
+              onChange={handleAvatarChange}
+              disabled={uploadingAvatar}
+            />
+            <div
+              className="rounded-full p-[3px]"
+              style={{
+                background: "linear-gradient(135deg, #22d3ee, #a855f7, #6366f1)",
+              }}
+            >
+              <div className="rounded-full bg-[#080810] p-[3px]">
+                <div className="relative h-[88px] w-[88px] overflow-hidden rounded-full">
+                  {currentAvatarUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={currentAvatarUrl} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    <div className={`flex h-full w-full items-center justify-center bg-gradient-to-br ${avatarGradient} text-2xl font-bold`}>
+                      {initials}
+                    </div>
+                  )}
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
+                    {uploadingAvatar ? (
+                      <svg className="h-6 w-6 animate-spin text-white" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                      </svg>
+                    ) : (
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5 text-white">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="17 8 12 3 7 8" />
+                        <line x1="12" y1="3" x2="12" y2="15" />
+                      </svg>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </label>
+          ) : (
+            <div className="shrink-0">
+              <div
+                className="rounded-full p-[3px]"
+                style={{
+                  background: "linear-gradient(135deg, #22d3ee, #a855f7, #6366f1)",
+                }}
+              >
+                <div className="rounded-full bg-[#080810] p-[3px]">
+                  <div className="relative h-[88px] w-[88px] overflow-hidden rounded-full">
+                    {currentAvatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={currentAvatarUrl} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className={`flex h-full w-full items-center justify-center bg-gradient-to-br ${avatarGradient} text-2xl font-bold`}>
+                        {initials}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {!isOwner && <div className="pt-1" />}
+        </div>
+
+        <div className="mt-4">
+          {isOwner && editingName ? (
+            <div className="flex max-w-sm flex-col gap-2">
+              <input
+                type="text"
+                value={nameValue}
+                onChange={(e) => setNameValue(e.target.value)}
+                maxLength={50}
+                placeholder="Twoje imię i nazwisko"
+                className="w-full rounded-xl bg-white/10 px-3 py-2 text-sm text-white placeholder-zinc-500 outline-none focus:ring-1 focus:ring-violet-500"
+                onKeyDown={(e) => e.key === "Enter" && handleSaveName()}
+                autoFocus
+              />
+              <div className="flex gap-2">
+                <button type="button" onClick={handleSaveName} disabled={savingName} className="flex-1 cursor-pointer rounded-xl bg-violet-600 py-1.5 text-sm font-medium text-white disabled:opacity-60">
+                  {savingName ? "Zapisywanie…" : "Zapisz"}
+                </button>
+                <button type="button" onClick={() => { setEditingName(false); setNameValue(fullName ?? ""); }} className="flex-1 cursor-pointer rounded-xl bg-white/10 py-1.5 text-sm text-zinc-300">
+                  Anuluj
+                </button>
+              </div>
+            </div>
+          ) : isOwner ? (
+            <button type="button" onClick={() => setEditingName(true)} className="group cursor-pointer text-left">
+              <h1 className="text-[22px] font-bold leading-tight text-white">{displayName}</h1>
+            </button>
+          ) : (
+            <h1 className="text-[22px] font-bold leading-tight text-white">{displayName}</h1>
+          )}
+
+          <p className="mt-0.5 text-sm font-medium text-violet-400">@{username}</p>
+
+          {isOwner && editingLocation ? (
+            <div className="mt-2 max-w-md space-y-2">
+              <LocationPicker
+                value={selectedLocation}
+                onChange={setSelectedLocation}
+                disabled={savingLocation}
+                variant="compact"
+                showMapHint={false}
+                inputId="profile-location"
+                placeholder="Wpisz miasto lub miejsce…"
+                initialLabel={locationValue || undefined}
+              />
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleSaveLocation()}
+                  disabled={savingLocation || !selectedLocation}
+                  className="flex-1 cursor-pointer rounded-xl bg-violet-600 py-1.5 text-sm font-medium text-white disabled:opacity-60"
+                >
+                  {savingLocation ? "Zapisywanie…" : "Zapisz"}
+                </button>
+                {locationValue ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleClearLocation()}
+                    disabled={savingLocation}
+                    className="cursor-pointer rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-zinc-400 hover:text-red-300 disabled:opacity-60"
+                  >
+                    Usuń
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingLocation(false);
+                    if (
+                      initialLocation &&
+                      initialLocationLat != null &&
+                      initialLocationLng != null
+                    ) {
+                      setSelectedLocation({
+                        location: initialLocation,
+                        location_name: initialLocationName,
+                        latitude: initialLocationLat,
+                        longitude: initialLocationLng,
+                        place_id: initialLocationPlaceId,
+                      });
+                    } else {
+                      setSelectedLocation(null);
+                    }
+                  }}
+                  className="flex-1 cursor-pointer rounded-xl bg-white/10 py-1.5 text-sm text-zinc-300"
+                >
+                  Anuluj
+                </button>
+              </div>
+            </div>
+          ) : isOwner ? (
+            <button
+              type="button"
+              onClick={() => setEditingLocation(true)}
+              className="mt-2 flex cursor-pointer items-center gap-1.5 text-left text-sm text-zinc-500 hover:text-zinc-300"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3.5 w-3.5 shrink-0">
+                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+                <circle cx="12" cy="10" r="3" />
+              </svg>
+              <span className={locationValue ? "text-zinc-400" : ""}>
+                {locationValue || "Dodaj lokalizację"}
+              </span>
+            </button>
+          ) : locationValue ? (
+            <p className="mt-2 flex items-center gap-1.5 text-sm text-zinc-400">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3.5 w-3.5 shrink-0 text-zinc-500">
+                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+                <circle cx="12" cy="10" r="3" />
+              </svg>
+              <span>{locationValue}</span>
+            </p>
+          ) : null}
+
+          {isOwner && editingBio ? (
+            <div className="mt-3 max-w-md">
+              <textarea
+                value={bioValue}
+                onChange={(e) => setBioValue(e.target.value)}
+                maxLength={160}
+                rows={3}
+                placeholder="Napisz coś o sobie…"
+                className="w-full resize-none rounded-xl bg-white/10 px-3 py-2 text-sm text-white placeholder-zinc-500 outline-none focus:ring-1 focus:ring-violet-500"
+              />
+              <div className="mt-2 flex gap-2">
+                <button type="button" onClick={handleSaveBio} disabled={savingBio} className="flex-1 cursor-pointer rounded-xl bg-violet-600 py-1.5 text-sm font-medium text-white disabled:opacity-60">
+                  {savingBio ? "Zapisywanie…" : "Zapisz"}
+                </button>
+                <button type="button" onClick={() => { setEditingBio(false); setBioValue(bio ?? ""); }} className="flex-1 cursor-pointer rounded-xl bg-white/10 py-1.5 text-sm text-zinc-300">
+                  Anuluj
+                </button>
+              </div>
+            </div>
+          ) : isOwner ? (
+            <button
+              type="button"
+              onClick={() => setEditingBio(true)}
+              className="mt-2 block max-w-md cursor-pointer text-left text-sm leading-relaxed text-zinc-400 hover:text-zinc-200"
+            >
+              {bioValue ? bioValue : (
+                <span className="text-zinc-600">+ Dodaj bio</span>
+              )}
+            </button>
+          ) : bioValue ? (
+            <p className="mt-2 max-w-md text-sm leading-relaxed text-zinc-400">{bioValue}</p>
+          ) : null}
+        </div>
+
+        {/* Stats */}
+        <div className="mt-5 flex w-full overflow-hidden rounded-2xl border border-white/10 bg-[#0c0c14]">
+          {([
+            { key: "following" as const, value: followingCount, label: "Obserwowani" },
+            { key: "followers" as const, value: followers, label: "Obserwujący" },
+            { key: "badges" as const, value: unlockedBadges.length, label: "Odznaki" },
+            { key: "posts" as const, value: postsCount, label: "Posty" },
+          ]).map((stat, index) => (
+            <button
+              key={stat.key}
+              type="button"
+              onClick={() => setStatsPanel(stat.key)}
+              className={`flex min-w-0 flex-1 cursor-pointer flex-col items-center gap-0.5 px-1 py-3.5 transition-colors hover:bg-white/5 active:bg-white/10 ${
+                index > 0 ? "border-l border-white/10" : ""
+              }`}
+            >
+              <span className="text-xl font-bold leading-none text-white">{formatCount(stat.value)}</span>
+              <span className="max-w-full truncate text-[11px] text-zinc-500">{stat.label}</span>
+            </button>
+          ))}
+        </div>
+      </section>
 
       {/* Panel listy ze statystyk */}
       {statsPanel && (
@@ -637,13 +790,13 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
             className="absolute inset-0 bg-black/60"
             onClick={() => setStatsPanel(null)}
           />
-          <div className="relative z-10 flex max-h-[80dvh] w-full max-w-2xl flex-col rounded-t-3xl border border-white/10 bg-[#0f0f18] sm:rounded-3xl sm:mx-4">
+          <div className="relative z-10 flex max-h-[80dvh] w-full max-w-md flex-col rounded-t-3xl border border-white/10 bg-[#0f0f18] sm:rounded-3xl sm:mx-4">
             <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
               <h2 className="text-sm font-semibold text-white">
                 {statsPanel === "followers" && `Obserwujący (${followerUsers.length})`}
                 {statsPanel === "following" && `Obserwowani (${localFollowing.length})`}
-                {statsPanel === "events" && `Odbyte (${goingEvents.length})`}
-                {statsPanel === "badges" && `Odznaki (${badgesWithProgress.filter((b) => b.unlocked).length})`}
+                {statsPanel === "badges" && `Odznaki (${unlockedBadges.length})`}
+                {statsPanel === "posts" && `Posty (${postsCount})`}
               </h2>
               <button
                 type="button"
@@ -665,8 +818,9 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
                     {followerUsers.map((person) => {
                       const name = person.full_name ?? "Użytkownik";
                       const uInitials = name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
-                      return (
-                        <div key={person.id} className="flex items-center gap-3 rounded-2xl bg-white/5 p-3">
+                      const href = person.username ? `/profile/${encodeURIComponent(person.username)}` : undefined;
+                      const row = (
+                        <>
                           <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full">
                             {person.avatar_url ? (
                               // eslint-disable-next-line @next/next/no-img-element
@@ -679,8 +833,24 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
                           </div>
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-semibold text-white">{name}</p>
-                            <p className="truncate text-xs text-zinc-500">{person.email ?? "Użytkownik IKU"}</p>
+                            <p className="truncate text-xs text-zinc-500">
+                              {person.username ? `@${person.username}` : (person.email ?? "Użytkownik IKU")}
+                            </p>
                           </div>
+                        </>
+                      );
+                      return href ? (
+                        <Link
+                          key={person.id}
+                          href={href}
+                          onClick={() => setStatsPanel(null)}
+                          className="flex items-center gap-3 rounded-2xl bg-white/5 p-3 transition-colors hover:bg-white/10"
+                        >
+                          {row}
+                        </Link>
+                      ) : (
+                        <div key={person.id} className="flex items-center gap-3 rounded-2xl bg-white/5 p-3">
+                          {row}
                         </div>
                       );
                     })}
@@ -695,30 +865,56 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
                     {localFollowing.map((person) => {
                       const name = person.full_name ?? "Użytkownik";
                       const uInitials = name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
+                      const href = person.username ? `/profile/${encodeURIComponent(person.username)}` : undefined;
                       return (
                         <div key={person.id} className="flex items-center gap-3 rounded-2xl bg-white/5 p-3">
-                          <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full">
-                            {person.avatar_url ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={person.avatar_url} alt="" className="h-full w-full object-cover" />
-                            ) : (
-                              <div className="flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br from-violet-600 to-purple-700 text-xs font-bold">
-                                {uInitials}
+                          {href ? (
+                            <Link href={href} onClick={() => setStatsPanel(null)} className="flex min-w-0 flex-1 items-center gap-3">
+                              <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full">
+                                {person.avatar_url ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img src={person.avatar_url} alt="" className="h-full w-full object-cover" />
+                                ) : (
+                                  <div className="flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br from-violet-600 to-purple-700 text-xs font-bold">
+                                    {uInitials}
+                                  </div>
+                                )}
                               </div>
-                            )}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-semibold text-white">{name}</p>
-                            <p className="truncate text-xs text-zinc-500">{person.email ?? "Użytkownik IKU"}</p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleUnfollow(person.id)}
-                            disabled={unfollowingUserId === person.id}
-                            className="shrink-0 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-zinc-300 transition-colors hover:border-red-500/40 hover:text-red-300 disabled:opacity-40"
-                          >
-                            {unfollowingUserId === person.id ? "…" : "Obserwowany"}
-                          </button>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-semibold text-white">{name}</p>
+                                <p className="truncate text-xs text-zinc-500">
+                                  {person.username ? `@${person.username}` : (person.email ?? "Użytkownik IKU")}
+                                </p>
+                              </div>
+                            </Link>
+                          ) : (
+                            <div className="flex min-w-0 flex-1 items-center gap-3">
+                              <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full">
+                                {person.avatar_url ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img src={person.avatar_url} alt="" className="h-full w-full object-cover" />
+                                ) : (
+                                  <div className="flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br from-violet-600 to-purple-700 text-xs font-bold">
+                                    {uInitials}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-semibold text-white">{name}</p>
+                                <p className="truncate text-xs text-zinc-500">{person.email ?? "Użytkownik IKU"}</p>
+                              </div>
+                            </div>
+                          )}
+                          {isOwner && (
+                            <button
+                              type="button"
+                              onClick={() => handleUnfollow(person.id)}
+                              disabled={unfollowingUserId === person.id}
+                              className="shrink-0 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-zinc-300 transition-colors hover:border-red-500/40 hover:text-red-300 disabled:opacity-40"
+                            >
+                              {unfollowingUserId === person.id ? "…" : "Obserwowany"}
+                            </button>
+                          )}
                         </div>
                       );
                     })}
@@ -726,30 +922,29 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
                 )
               )}
 
-              {statsPanel === "events" && (
-                goingEvents.length === 0 ? (
-                  <p className="py-10 text-center text-sm text-zinc-500">Brak odbytych wydarzeń.</p>
+              {statsPanel === "posts" && (
+                localPosts.length === 0 ? (
+                  <p className="py-10 text-center text-sm text-zinc-500">Brak postów.</p>
                 ) : (
                   <div className="space-y-2">
-                    {goingEvents.map((event) => (
+                    {localPosts.map((post) => (
                       <Link
-                        key={event.id}
-                        href={`/events/${event.id}`}
+                        key={post.id}
+                        href={`/post/${post.id}`}
                         onClick={() => setStatsPanel(null)}
-                        className="flex items-center gap-3 rounded-2xl bg-white/5 p-3 transition-colors hover:bg-white/10"
+                        className="block rounded-2xl bg-white/5 p-3 transition-colors hover:bg-white/10"
                       >
-                        <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-white/10">
-                          {event.cover_url ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={event.cover_url} alt="" className="h-full w-full object-cover" />
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center text-lg">🎪</div>
-                          )}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold text-white">{event.title}</p>
-                          <p className="truncate text-xs text-zinc-500">{event.location}</p>
-                        </div>
+                        <p className="text-sm text-zinc-200 line-clamp-3">
+                          {post.content || (post.image_url ? "📷 Zdjęcie" : "Post")}
+                        </p>
+                        <p className="mt-1 text-[11px] text-zinc-600">
+                          {new Date(post.created_at).toLocaleDateString("pl-PL", {
+                            day: "numeric",
+                            month: "short",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </p>
                       </Link>
                     ))}
                   </div>
@@ -757,13 +952,12 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
               )}
 
               {statsPanel === "badges" && (() => {
-                const unlocked = badgesWithProgress.filter((b) => b.unlocked);
-                if (unlocked.length === 0) {
+                if (unlockedBadges.length === 0) {
                   return <p className="py-10 text-center text-sm text-zinc-500">Brak odblokowanych odznak.</p>;
                 }
                 return (
                   <div className="space-y-2">
-                    {unlocked.map((badge) => (
+                    {unlockedBadges.map((badge) => (
                       <div key={badge.id} className="flex items-center gap-3 rounded-2xl bg-white/5 p-3">
                         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-500/20 text-lg">
                           {badge.emoji}
@@ -782,328 +976,211 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
         </div>
       )}
 
-      {/* Action buttons */}
+      {/* Przyciski właściciela / gościa */}
       <div className="mt-4 flex gap-3 px-4">
-        <Link
-          href="/events/new"
-          className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-blue-500 py-2.5 text-xs font-semibold text-white hover:bg-blue-400 active:scale-95 transition-transform"
-        >
-          Utwórz wydarzenie
-        </Link>
-        <Link
-          href="/badges/create"
-          className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-zinc-800 py-2.5 text-xs font-semibold text-zinc-100 hover:bg-zinc-700 active:scale-95 transition-transform"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4 text-zinc-300">
-            <circle cx="12" cy="8" r="6" />
-            <path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11" />
-          </svg>
-          Odznaka
-        </Link>
+        {isOwner ? (
+          <>
+            <Link
+              href="/settings/profil"
+              className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] py-2.5 text-xs font-semibold text-white transition-colors hover:bg-white/10"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3.5 w-3.5 text-zinc-400">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </svg>
+              Edytuj profil
+            </Link>
+            <button
+              type="button"
+              onClick={() => void handleShareProfile()}
+              className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] py-2.5 text-xs font-semibold text-white transition-colors hover:bg-white/10"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3.5 w-3.5 text-zinc-400">
+                <circle cx="18" cy="5" r="3" />
+                <circle cx="6" cy="12" r="3" />
+                <circle cx="18" cy="19" r="3" />
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+              </svg>
+              Udostępnij profil
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={() => void handleToggleFollowProfile()}
+            disabled={togglingFollowProfile}
+            className={`flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl py-2.5 text-xs font-semibold transition-colors disabled:opacity-60 ${
+              followingThisProfile
+                ? "border border-white/10 bg-white/[0.04] text-white hover:bg-white/10"
+                : "bg-violet-600 text-white hover:bg-violet-500"
+            }`}
+          >
+            {togglingFollowProfile
+              ? "…"
+              : followingThisProfile
+                ? "Obserwowany"
+                : "Obserwuj"}
+          </button>
+        )}
       </div>
 
-      {/* Tabs */}
-      <div className="mx-4 mt-5 flex min-w-0 gap-1 overflow-hidden rounded-[14px] border border-white/10 p-1">
-        {(["wall", "badges", "obserwowani", "historia"] as Tab[]).map((tab) => {
-          const labels: Record<Tab, string> = {
-            wall: "Wall",
-            badges: "Odznaki",
-            obserwowani: "Obserwuj",
-            historia: "Historia",
-          };
-          const icons: Record<Tab, React.ReactNode> = {
-            wall: (
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="15" height="15" className="shrink-0">
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-              </svg>
-            ),
-            badges: (
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="15" height="15" className="shrink-0">
-                <circle cx="12" cy="8" r="6" />
-                <path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11" />
-              </svg>
-            ),
-            obserwowani: (
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="15" height="15" className="shrink-0">
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                <circle cx="9" cy="7" r="4" />
-                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-              </svg>
-            ),
-            historia: (
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="15" height="15" className="shrink-0">
-                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-                <line x1="16" y1="2" x2="16" y2="6" />
-                <line x1="8" y1="2" x2="8" y2="6" />
-                <line x1="3" y1="10" x2="21" y2="10" />
-              </svg>
-            ),
-          };
-          const isActive = activeTab === tab;
-          return (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => setActiveTab(tab)}
-              className={`flex min-w-0 flex-1 cursor-pointer items-center justify-center gap-1 rounded-[10px] px-1.5 py-1.5 text-[11px] font-medium transition-colors ${
-                isActive ? "bg-blue-500 text-white" : "bg-transparent text-zinc-500"
-              }`}
-            >
-              {icons[tab]}
-              <span className="truncate">{labels[tab]}</span>
-            </button>
-          );
-        })}
+      {/* Podgląd odznak — jak na mockupu */}
+      <section className="mt-5 px-4">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" className="h-5 w-5 shrink-0" aria-hidden>
+              <path d="M8 21h8m-4-4v-5" stroke="#f59e0b" strokeWidth="1.7" strokeLinecap="round" />
+              <path d="M4 7h16v5a8 8 0 0 1-16 0V7z" stroke="#f59e0b" strokeWidth="1.7" strokeLinejoin="round" />
+              <line x1="4" y1="7" x2="4" y2="4" stroke="#f59e0b" strokeWidth="1.7" strokeLinecap="round" />
+              <line x1="20" y1="7" x2="20" y2="4" stroke="#f59e0b" strokeWidth="1.7" strokeLinecap="round" />
+              <line x1="4" y1="4" x2="20" y2="4" stroke="#f59e0b" strokeWidth="1.7" strokeLinecap="round" />
+              <circle cx="12" cy="10" r="2.2" fill="#fbbf24" opacity="0.9" />
+            </svg>
+            <h2 className="text-base font-bold text-white">Odznaki</h2>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActiveTab("badges")}
+            className="cursor-pointer text-sm font-medium text-violet-400 transition-colors hover:text-violet-300"
+          >
+            Pokaż wszystkie &gt;
+          </button>
+        </div>
+
+        {unlockedBadges.length === 0 ? (
+          <p className="rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-6 text-center text-sm text-zinc-500">
+            Brak odblokowanych odznak.
+          </p>
+        ) : (
+          <div className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {unlockedBadges.slice(0, 4).map((badge) => (
+              <button
+                key={badge.id}
+                type="button"
+                onClick={() => setActiveTab("badges")}
+                className="flex w-[148px] shrink-0 cursor-pointer flex-col items-center gap-3 rounded-2xl border border-white/10 bg-[#0c0c14] px-3 py-4 text-center transition-colors hover:border-white/20 hover:bg-white/[0.03]"
+              >
+                <div
+                  className="relative flex h-16 w-16 items-center justify-center rounded-full"
+                  style={{
+                    background: `radial-gradient(circle, ${rarityColor(badge.rarity)}33 0%, transparent 70%)`,
+                  }}
+                >
+                  <div
+                    className="flex h-12 w-12 items-center justify-center rounded-2xl"
+                    style={{ background: rarityGradient(badge.rarity) }}
+                  >
+                    <BadgeIcon id={badge.id} size={26} color="white" />
+                  </div>
+                </div>
+                <span className="line-clamp-2 w-full text-[12px] font-medium leading-snug text-zinc-400">
+                  {badge.label}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Tabs — styl jak na mockupu */}
+      <div className="mt-5 border-b border-white/10 px-2">
+        <div className="flex min-w-0">
+          {(
+            [
+              { key: "posty" as const, label: "Posty", show: true },
+              { key: "badges" as const, label: "Odznaki", show: true },
+              { key: "saved" as const, label: "Zapisane", show: isOwner },
+              { key: "historia" as const, label: "Historia", show: isOwner },
+            ] as const
+          )
+            .filter((t) => t.show)
+            .map((tab) => {
+              const isActive = tab.key !== "historia" && activeTab === tab.key;
+              const icons: Record<string, React.ReactNode> = {
+                posty: (
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+                    <rect x="3" y="3" width="7" height="7" rx="1" />
+                    <rect x="14" y="3" width="7" height="7" rx="1" />
+                    <rect x="3" y="14" width="7" height="7" rx="1" />
+                    <rect x="14" y="14" width="7" height="7" rx="1" />
+                  </svg>
+                ),
+                badges: (
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+                    <circle cx="12" cy="8" r="5" />
+                    <path d="M8.21 13.89 7 22l5-3 5 3-1.21-8.11" />
+                  </svg>
+                ),
+                saved: (
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+                    <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+                  </svg>
+                ),
+                historia: (
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+                    <circle cx="12" cy="12" r="9" />
+                    <polyline points="12 7 12 12 15 14" />
+                  </svg>
+                ),
+              };
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => {
+                    if (tab.key === "historia") {
+                      router.push("/settings/historia");
+                      return;
+                    }
+                    setActiveTab(tab.key);
+                  }}
+                  className={`relative flex flex-1 cursor-pointer flex-col items-center gap-1 px-1 py-2.5 text-[11px] font-medium transition-colors ${
+                    isActive ? "text-violet-400" : "text-zinc-500 hover:text-zinc-300"
+                  }`}
+                >
+                  {icons[tab.key]}
+                  <span>{tab.label}</span>
+                  {isActive && (
+                    <span className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-violet-500" />
+                  )}
+                </button>
+              );
+            })}
+        </div>
       </div>
 
       {/* Tab content */}
       <main className="min-w-0 w-full overflow-x-hidden px-4 pt-4">
 
-        {/* Wall */}
-        {activeTab === "wall" && (
-          <div className="space-y-3">
-            {/* Composer */}
-            <div className="rounded-2xl bg-white/5 p-3">
-              <div className="flex gap-3">
-                <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full">
-                  {currentAvatarUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={currentAvatarUrl} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    <div className={`flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br ${avatarGradient} text-xs font-bold`}>{initials}</div>
-                  )}
-                </div>
-                <div className="flex flex-1 flex-col gap-2">
-                  <textarea
-                    value={postContent}
-                    onChange={(e) => setPostContent(e.target.value)}
-                    placeholder="Co słychać? Podziel się z obserwującymi…"
-                    maxLength={500}
-                    rows={2}
-                    className="w-full resize-none bg-transparent text-sm text-white placeholder-zinc-600 outline-none"
-                  />
-                  <div className="flex items-center justify-between">
-                    <label className="cursor-pointer text-zinc-500 hover:text-zinc-300 transition-colors">
-                      <input
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp,image/gif"
-                        className="sr-only"
-                        onChange={handlePostImageChange}
-                      />
-                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
-                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                        <circle cx="8.5" cy="8.5" r="1.5" />
-                        <polyline points="21 15 16 10 5 21" />
-                      </svg>
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-zinc-600">{postContent.length}/500</span>
-                      <button
-                        type="button"
-                        onClick={handleCreatePost}
-                        disabled={(!postContent.trim() && !postImageFile) || postingContent}
-                        className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-500 text-white disabled:opacity-40"
-                      >
-                        {postingContent ? (
-                          <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-                          </svg>
-                        ) : (
-                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
-                            <path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" />
-                          </svg>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              {/* Image preview */}
-              {postImagePreview && (
-                <div className="relative mt-2 overflow-hidden rounded-xl">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={postImagePreview} alt="Podgląd" className="max-h-48 w-full object-cover" />
-                  <button
-                    type="button"
-                    onClick={clearPostImage}
-                    className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-3.5 w-3.5">
-                      <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-                    </svg>
-                  </button>
-                  {uploadingPostImage && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-                      <svg className="h-8 w-8 animate-spin text-white" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-                      </svg>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Posts feed */}
+        {/* Posty — siatka 3x3 */}
+        {activeTab === "posty" && (
+          <div className="space-y-3 pb-4">
             {localPosts.length === 0 ? (
-              <div className="py-10 text-center text-sm text-zinc-600">Brak postów. Napisz coś!</div>
+              <div className="py-10 text-center text-sm text-zinc-600">
+                {isOwner ? "Brak postów. Kliknij + u góry, żeby dodać." : "Brak postów."}
+              </div>
             ) : (
-              localPosts.map((post) => {
-                const postInitials = post.author_name
-                  ? post.author_name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2)
-                  : post.author_email.slice(0, 2).toUpperCase();
-                return (
-                  <div key={post.id} className="overflow-hidden rounded-2xl bg-white/5">
-                    {/* Header + text */}
-                    <div className="flex items-start gap-3 px-4 pt-4">
-                      <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full">
-                        {post.author_avatar ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={post.author_avatar} alt="" className="h-full w-full object-cover" />
-                        ) : (
-                          <div className={`flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br ${avatarGradient} text-xs font-bold`}>{postInitials}</div>
-                        )}
-                      </div>
-                      <div className="flex-1 pb-3">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold">{post.author_name || post.author_email.split("@")[0]}</span>
-                          {post.event_title && (
-                            <span className="rounded-full bg-violet-500/20 px-2 py-0.5 text-[10px] text-violet-300">
-                              🎫 {post.event_title.length > 15 ? post.event_title.slice(0, 15) + "…" : post.event_title}
-                            </span>
-                          )}
-                        </div>
-                        <p className="mt-0.5 text-xs text-zinc-500">
-                          {new Date(post.created_at).toLocaleDateString("pl-PL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+              <div className="-mx-4 grid grid-cols-3 gap-0.5">
+                {localPosts.map((post) => (
+                  <Link
+                    key={post.id}
+                    href={`/post/${post.id}`}
+                    className="relative aspect-square overflow-hidden bg-white/5 transition-opacity hover:opacity-90"
+                  >
+                    {post.image_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={post.image_url} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center bg-[#12121a] p-2">
+                        <p className="line-clamp-4 text-center text-[10px] leading-snug text-zinc-400">
+                          {post.content || "Post"}
                         </p>
-                        {post.content && <p className="mt-2 text-sm leading-relaxed text-zinc-200">{post.content}</p>}
-                      </div>
-                    </div>
-                    {/* Full-width image */}
-                    {post.image_url && (
-                      <div className="px-3 pb-1">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={post.image_url} alt="" className="w-full rounded-xl object-cover max-h-80" />
                       </div>
                     )}
-                    {/* Reactions */}
-                    <div className="px-4 pb-3">
-                    <div className="mt-3 flex items-center gap-4">
-                          <button
-                            type="button"
-                            onClick={() => handleReaction(post.id)}
-                            disabled={reactingPostId === post.id}
-                            className={`flex items-center gap-1.5 text-sm transition-colors ${post.user_reacted ? "text-rose-400" : "text-zinc-500 hover:text-rose-400"}`}
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={post.user_reacted ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" className="h-4 w-4">
-                              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-                            </svg>
-                            {post.reaction_count > 0 && <span>{post.reaction_count}</span>}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleToggleComments(post.id)}
-                            className={`flex items-center gap-1.5 text-sm transition-colors ${openCommentsPostId === post.id ? "text-blue-400" : "text-zinc-500 hover:text-blue-400"}`}
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
-                              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                            </svg>
-                            {post.comment_count > 0 && <span>{post.comment_count}</span>}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleShare(post.id)}
-                            className="ml-auto flex items-center gap-1.5 text-sm text-zinc-500 transition-colors hover:text-zinc-300"
-                          >
-                            {copiedPostId === post.id ? (
-                              <>
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4 text-green-400">
-                                  <polyline points="20 6 9 17 4 12" />
-                                </svg>
-                                <span className="text-xs text-green-400">Skopiowano</span>
-                              </>
-                            ) : (
-                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
-                                <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
-                                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-                              </svg>
-                            )}
-                          </button>
-                        </div>
-
-                        {/* Comments section */}
-                        {openCommentsPostId === post.id && (
-                          <div className="mt-3 border-t border-white/5 pt-3">
-                            {loadingCommentsId === post.id ? (
-                              <p className="text-xs text-zinc-600">Ładowanie…</p>
-                            ) : (
-                              <div className="space-y-2">
-                                {(commentsMap[post.id] ?? []).length === 0 && (
-                                  <p className="text-xs text-zinc-600">Brak komentarzy. Napisz pierwszy!</p>
-                                )}
-                                {(commentsMap[post.id] ?? []).map((c) => {
-                                  const cInitials = c.author_name
-                                    ? c.author_name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2)
-                                    : c.author_email.slice(0, 2).toUpperCase();
-                                  return (
-                                    <div key={c.id} className="flex gap-2">
-                                      <div className="h-6 w-6 shrink-0 overflow-hidden rounded-full">
-                                        {c.author_avatar ? (
-                                          // eslint-disable-next-line @next/next/no-img-element
-                                          <img src={c.author_avatar} alt="" className="h-full w-full object-cover" />
-                                        ) : (
-                                          <div className={`flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br ${avatarGradient} text-[9px] font-bold`}>{cInitials}</div>
-                                        )}
-                                      </div>
-                                      <div className="flex-1 rounded-xl bg-white/5 px-3 py-1.5">
-                                        <span className="text-xs font-semibold text-zinc-300">{c.author_name || c.author_email.split("@")[0]}</span>
-                                        <p className="text-xs text-zinc-400">{c.content}</p>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                                {/* Comment input */}
-                                <div className="flex gap-2 pt-1">
-                                  <div className="h-6 w-6 shrink-0 overflow-hidden rounded-full">
-                                    {currentAvatarUrl ? (
-                                      // eslint-disable-next-line @next/next/no-img-element
-                                      <img src={currentAvatarUrl} alt="" className="h-full w-full object-cover" />
-                                    ) : (
-                                      <div className={`flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br ${avatarGradient} text-[9px] font-bold`}>{initials}</div>
-                                    )}
-                                  </div>
-                                  <div className="flex flex-1 items-center gap-2 rounded-xl bg-white/5 px-3 py-1.5">
-                                    <input
-                                      type="text"
-                                      value={commentInputs[post.id] ?? ""}
-                                      onChange={(e) => setCommentInputs((prev) => ({ ...prev, [post.id]: e.target.value }))}
-                                      onKeyDown={(e) => e.key === "Enter" && handleSubmitComment(post.id)}
-                                      placeholder="Napisz komentarz…"
-                                      maxLength={300}
-                                      className="flex-1 bg-transparent text-xs text-white placeholder-zinc-600 outline-none"
-                                    />
-                                    <button
-                                      type="button"
-                                      onClick={() => handleSubmitComment(post.id)}
-                                      disabled={!(commentInputs[post.id] ?? "").trim() || submittingCommentId === post.id}
-                                      className="text-blue-500 disabled:opacity-30 hover:text-blue-400"
-                                    >
-                                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
-                                        <path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" />
-                                      </svg>
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                    </div>
-                  </div>
-                );
-              })
+                  </Link>
+                ))}
+              </div>
             )}
           </div>
         )}
@@ -1223,240 +1300,150 @@ export function ProfilePage({ email, bio, avatarUrl, fullName, userId, goingEven
           </div>
         )}
 
-        {/* Historia */}
-        {activeTab === "historia" && (() => {
-          const MONTHS = ["sty","lut","mar","kwi","maj","cze","lip","sie","wrz","paź","lis","gru"];
-          const fmtDate = (iso: string) => {
-            const d = new Date(iso);
-            return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
-          };
-
-          const allEvents = [
-            ...goingEvents.map((e) => ({ ...e, _status: "going" as const })),
-            ...savedEvents.map((e) => ({ ...e, _status: "saved" as const })),
-          ]
-            .filter((e, i, arr) => arr.findIndex((x) => x.id === e.id) === i)
-            .sort((a, b) => new Date(b.starts_at).getTime() - new Date(a.starts_at).getTime());
-
-          const uniqueCategories = new Set(
-            allEvents.flatMap((e) => getEventCategories(e)),
-          ).size;
-          const unlockedBadges = badgesWithProgress.filter((b) => b.unlocked).length;
-
-          return (
-            <div className="space-y-4 pb-4">
-              {/* Stats bar */}
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { value: allEvents.length,  label: "Wszystkich wydarzeń" },
-                  { value: uniqueCategories,  label: "Kategorie" },
-                  { value: unlockedBadges,    label: "Odznaki" },
-                ].map(({ value, label }) => (
-                  <div key={label} className="flex flex-col items-center justify-center rounded-2xl bg-white/5 py-3 px-2 text-center">
-                    <span className="text-xl font-bold text-white">{value}</span>
-                    <span className="mt-0.5 text-[11px] text-zinc-500 leading-tight">{label}</span>
-                  </div>
-                ))}
+        {/* Zapisane */}
+        {activeTab === "saved" && isOwner && (
+          <div className="space-y-2 pb-4">
+            {savedEvents.length === 0 ? (
+              <div className="rounded-2xl bg-white/5 px-4 py-10 text-center">
+                <p className="text-sm text-zinc-500">Brak zapisanych wydarzeń.</p>
               </div>
-
-              {/* Event list */}
-              {allEvents.length === 0 ? (
-                <div className="rounded-2xl bg-white/5 py-10 text-center">
-                  <p className="text-2xl">📅</p>
-                  <p className="mt-2 text-sm text-zinc-500">Brak aktywności.</p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {allEvents.map((event) => (
-                    <Link
-                      key={`${event._status}-${event.id}`}
-                      href={`/events/${event.id}`}
-                      className="flex items-center gap-3 rounded-2xl bg-white/5 p-3 transition-colors hover:bg-white/10"
-                    >
-                      {/* Thumbnail */}
-                      <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-white/10">
-                        {event.cover_url ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={event.cover_url} alt="" className="h-full w-full object-cover" />
-                        ) : (
-                          <div className="flex h-full w-full items-center justify-center text-xl">
-                            🎪
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Info */}
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-semibold text-white">{event.title}</p>
-                        <p className="text-xs text-amber-400">{fmtDate(event.starts_at)}</p>
-                        <p className="truncate text-xs text-blue-400">{event.location}</p>
-                      </div>
-
-                      {/* Chevron */}
-                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4 shrink-0 text-zinc-600">
-                        <polyline points="9 18 15 12 9 6"/>
-                      </svg>
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })()}
-
-        {/* Obserwowani */}
-        {activeTab === "obserwowani" && (
-          <div className="space-y-5 pb-4">
-
-            {/* Osoby, które obserwujesz */}
-            <div>
-              <h3 className="mb-3 text-sm font-semibold text-zinc-300">
-                Obserwowani ({localFollowing.length})
-              </h3>
-
-              {localFollowing.length === 0 ? (
-                <div className="rounded-2xl bg-white/5 px-4 py-8 text-center">
-                  <p className="text-2xl">👥</p>
-                  <p className="mt-2 text-sm text-zinc-500">Nie obserwujesz jeszcze nikogo.</p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {localFollowing.map((user) => {
-                    const name = user.full_name ?? "Użytkownik";
-                    const handle = "@" + name.toLowerCase().replace(/\s+/g, ".").replace(/[^a-z0-9.]/g, "");
-                    const uInitials = name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
-                    return (
-                      <div key={user.id} className="flex items-center gap-3 rounded-2xl bg-white/5 p-3">
-                        {/* Avatar */}
-                        <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full">
-                          {user.avatar_url ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={user.avatar_url} alt="" className="h-full w-full object-cover" />
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-700 text-xs font-bold">
-                              {uInitials}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Name */}
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold text-white">{name}</p>
-                          <p className="truncate text-xs text-zinc-500">{handle}</p>
-                        </div>
-
-                        {/* Unfollow */}
-                        <button
-                          type="button"
-                          onClick={() => handleUnfollow(user.id)}
-                          disabled={unfollowingUserId === user.id}
-                          className="shrink-0 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-zinc-300 transition-colors hover:border-red-500/40 hover:text-red-300 disabled:opacity-40"
-                          title="Przestań obserwować"
-                        >
-                          {unfollowingUserId === user.id ? "…" : "Obserwowany"}
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Propozycje do obserwowania */}
-            <div>
-              <h3 className="mb-3 text-sm font-semibold text-zinc-300">Proponowani</h3>
-
-              <div className="relative mb-3">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500"
+            ) : (
+              savedEvents.map((event) => (
+                <Link
+                  key={event.id}
+                  href={`/events/${event.id}`}
+                  className="flex items-center gap-3 rounded-2xl bg-white/5 p-3 transition-colors hover:bg-white/10"
                 >
-                  <circle cx="11" cy="11" r="8" />
-                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                </svg>
-                <input
-                  type="search"
-                  value={suggestQuery}
-                  onChange={(e) => setSuggestQuery(e.target.value)}
-                  placeholder="Szukaj użytkowników…"
-                  className="w-full rounded-2xl border border-white/10 bg-white/5 py-2.5 pl-10 pr-3 text-sm text-white placeholder-zinc-600 outline-none focus:border-blue-500/50"
-                />
-              </div>
-
-              {searchingUsers ? (
-                <p className="py-6 text-center text-xs text-zinc-600">Szukam…</p>
-              ) : displayedSuggestions.length === 0 ? (
-                <div className="rounded-2xl bg-white/5 px-4 py-8 text-center">
-                  <p className="text-sm text-zinc-500">
-                    {suggestQuery.trim()
-                      ? "Nie znaleziono użytkowników."
-                      : "Brak nowych propozycji do obserwowania."}
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {displayedSuggestions.map((user) => {
-                    const name = user.full_name ?? "Użytkownik";
-                    const uInitials = name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
-                    return (
-                      <div key={user.id} className="flex items-center gap-3 rounded-2xl bg-white/5 p-3">
-                        <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full">
-                          {user.avatar_url ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={user.avatar_url} alt="" className="h-full w-full object-cover" />
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br from-violet-600 to-purple-700 text-xs font-bold">
-                              {uInitials}
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold text-white">{name}</p>
-                          {user.email ? (
-                            <p className="truncate text-xs text-zinc-500">{user.email}</p>
-                          ) : user.mutual_count > 0 ? (
-                            <p className="truncate text-xs text-zinc-500">{user.mutual_count} wspólnych obserwujących</p>
-                          ) : (
-                            <p className="truncate text-xs text-zinc-600">Użytkownik IKU</p>
-                          )}
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => handleFollow(user)}
-                          disabled={addingUserId === user.id}
-                          className="flex shrink-0 items-center gap-1.5 rounded-full bg-blue-500 px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:bg-blue-600 disabled:opacity-50"
-                        >
-                          {addingUserId === user.id ? (
-                            <svg className="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
-                            </svg>
-                          ) : (
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5">
-                              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
-                              <circle cx="9" cy="7" r="4"/>
-                              <line x1="19" y1="8" x2="19" y2="14"/>
-                              <line x1="22" y1="11" x2="16" y2="11"/>
-                            </svg>
-                          )}
-                          Obserwuj
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+                  <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-white/10">
+                    {event.cover_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={event.cover_url} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-xl">🎪</div>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-white">{event.title}</p>
+                    <p className="text-xs text-amber-400">
+                      {new Date(event.starts_at).toLocaleDateString("pl-PL", {
+                        day: "numeric",
+                        month: "short",
+                        year: "numeric",
+                      })}
+                    </p>
+                    <p className="truncate text-xs text-blue-400">{event.location}</p>
+                  </div>
+                </Link>
+              ))
+            )}
           </div>
         )}
+
       </main>
 
+      {/* Modal nowego posta */}
+      {isOwner && composeOpen && (
+        <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center">
+          <button
+            type="button"
+            aria-label="Zamknij"
+            className="absolute inset-0 bg-black/70"
+            onClick={() => {
+              if (!postingContent) {
+                setComposeOpen(false);
+                clearPostImage();
+                setPostContent("");
+              }
+            }}
+          />
+          <div className="relative z-10 w-full max-w-md rounded-t-3xl border border-white/10 bg-[#0f0f18] p-4 sm:rounded-3xl sm:mx-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-white">Nowy post</h2>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!postingContent) {
+                    setComposeOpen(false);
+                    clearPostImage();
+                    setPostContent("");
+                  }
+                }}
+                className="rounded-full p-1.5 text-zinc-400 hover:bg-white/10 hover:text-white"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5">
+                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="flex gap-3">
+              <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full">
+                {currentAvatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={currentAvatarUrl} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  <div className={`flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br ${avatarGradient} text-xs font-bold`}>
+                    {initials}
+                  </div>
+                )}
+              </div>
+              <textarea
+                value={postContent}
+                onChange={(e) => setPostContent(e.target.value)}
+                placeholder="Co słychać? Podziel się z obserwującymi…"
+                maxLength={500}
+                rows={4}
+                autoFocus
+                className="w-full resize-none bg-transparent text-sm text-white placeholder-zinc-600 outline-none"
+              />
+            </div>
+
+            {postImagePreview && (
+              <div className="relative mt-3 overflow-hidden rounded-xl">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={postImagePreview} alt="Podgląd" className="max-h-56 w-full object-cover" />
+                <button
+                  type="button"
+                  onClick={clearPostImage}
+                  className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-3.5 w-3.5">
+                    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+              </div>
+            )}
+
+            <div className="mt-4 flex items-center justify-between border-t border-white/10 pt-3">
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-400 transition-colors hover:text-zinc-200">
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  className="sr-only"
+                  onChange={handlePostImageChange}
+                />
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                  <circle cx="8.5" cy="8.5" r="1.5" />
+                  <polyline points="21 15 16 10 5 21" />
+                </svg>
+                Zdjęcie
+              </label>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-zinc-600">{postContent.length}/500</span>
+                <button
+                  type="button"
+                  onClick={() => void handleCreatePost()}
+                  disabled={(!postContent.trim() && !postImageFile) || postingContent}
+                  className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-violet-500 disabled:opacity-40"
+                >
+                  {postingContent ? "Publikuję…" : "Opublikuj"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <BottomNav activePage="profile" />
     </div>

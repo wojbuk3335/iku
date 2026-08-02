@@ -166,7 +166,7 @@ export function BottomNav({ activePage = "home" }: { activePage?: ActivePage }) 
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-white/5 bg-[#080810]/95 backdrop-blur-md">
-      <div className="mx-auto flex max-w-2xl items-end justify-around px-2 pb-5 pt-2">
+      <div className="mx-auto flex max-w-md items-end justify-around px-2 pb-5 pt-2">
 
         <Link
           href="/events"

@@ -1,10 +1,11 @@
 import { redirect } from "next/navigation";
 import { getSessionProfile } from "@/lib/auth/get-session-profile";
-import { SettingsHubPage } from "@/components/settings/settings-hub-page";
+import { getUserHistory } from "@/lib/profile/get-history";
+import { HistoriaPage } from "@/components/settings/historia-page";
 
 export const dynamic = "force-dynamic";
 
-export default async function Settings() {
+export default async function SettingsHistoriaPage() {
   const { user, profile } = await getSessionProfile();
 
   if (!user) redirect("/");
@@ -12,5 +13,7 @@ export default async function Settings() {
   if (profile?.role === "creator") redirect("/admin/settings/profile");
   if (!profile?.onboarding_completed) redirect("/onboarding");
 
-  return <SettingsHubPage email={user.email ?? ""} />;
+  const history = await getUserHistory(user.id);
+
+  return <HistoriaPage history={history} />;
 }

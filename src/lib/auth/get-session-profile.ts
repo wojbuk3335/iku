@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { usernameFromEmail } from "@/lib/profile/username";
 import type { Profile } from "@/types/profile";
 
 type ExtraProfile = {
@@ -6,6 +7,7 @@ type ExtraProfile = {
   avatar_url: string | null;
   full_name: string | null;
   birth_date: string | null;
+  username: string | null;
 };
 
 async function loadExtraProfile(
@@ -17,8 +19,26 @@ async function loadExtraProfile(
     avatar_url: null,
     full_name: null,
     birth_date: null,
+    username: null,
   };
 
+  const withUsername = await supabase
+    .from("profiles")
+    .select("bio, avatar_url, full_name, birth_date, username")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (!withUsername.error && withUsername.data) {
+    return {
+      bio: withUsername.data.bio ?? null,
+      avatar_url: withUsername.data.avatar_url ?? null,
+      full_name: withUsername.data.full_name ?? null,
+      birth_date: withUsername.data.birth_date ?? null,
+      username: withUsername.data.username ?? null,
+    };
+  }
+
+  // Fallback gdy brak kolumny username / birth_date (migracja jeszcze nieodpalona)
   const withBirth = await supabase
     .from("profiles")
     .select("bio, avatar_url, full_name, birth_date")
@@ -31,10 +51,10 @@ async function loadExtraProfile(
       avatar_url: withBirth.data.avatar_url ?? null,
       full_name: withBirth.data.full_name ?? null,
       birth_date: withBirth.data.birth_date ?? null,
+      username: null,
     };
   }
 
-  // Fallback gdy brak kolumny birth_date (migracja jeszcze nieodpalona)
   const withoutBirth = await supabase
     .from("profiles")
     .select("bio, avatar_url, full_name")
@@ -42,8 +62,11 @@ async function loadExtraProfile(
     .maybeSingle();
 
   if (withoutBirth.error || !withoutBirth.data) {
+    if (withUsername.error) {
+      console.error("loadExtraProfile:", withUsername.error.message);
+    }
     if (withBirth.error) {
-      console.error("loadExtraProfile:", withBirth.error.message);
+      console.error("loadExtraProfile birth:", withBirth.error.message);
     }
     if (withoutBirth.error) {
       console.error("loadExtraProfile fallback:", withoutBirth.error.message);
@@ -56,6 +79,7 @@ async function loadExtraProfile(
     avatar_url: withoutBirth.data.avatar_url ?? null,
     full_name: withoutBirth.data.full_name ?? null,
     birth_date: null,
+    username: null,
   };
 }
 
@@ -76,11 +100,22 @@ export async function getSessionProfile() {
     .single();
 
   if (!baseProfile) {
-    await supabase.from("profiles").insert({
+    const seedUsername = usernameFromEmail(user.email, user.id);
+    const { error: insertError } = await supabase.from("profiles").insert({
       id: user.id,
       email: user.email,
       role: "user",
+      username: seedUsername,
     });
+
+    if (insertError) {
+      // Kolumna username może jeszcze nie istnieć — spróbuj bez niej
+      await supabase.from("profiles").insert({
+        id: user.id,
+        email: user.email,
+        role: "user",
+      });
+    }
 
     const { data: createdProfile } = await supabase
       .from("profiles")
@@ -97,6 +132,20 @@ export async function getSessionProfile() {
 
   const extraProfile = await loadExtraProfile(supabase, user.id);
 
+  let username = extraProfile.username;
+  if (!username) {
+    const seed = usernameFromEmail(user.email ?? baseProfile.email, user.id);
+    const { error: usernameError } = await supabase
+      .from("profiles")
+      .update({ username: seed })
+      .eq("id", user.id)
+      .is("username", null);
+
+    if (!usernameError) {
+      username = seed;
+    }
+  }
+
   const profile: Profile = {
     ...baseProfile,
     role: baseProfile.role,
@@ -106,6 +155,7 @@ export async function getSessionProfile() {
     avatar_url: extraProfile.avatar_url,
     full_name: extraProfile.full_name,
     birth_date: extraProfile.birth_date,
+    username,
   };
 
   return { user, profile };

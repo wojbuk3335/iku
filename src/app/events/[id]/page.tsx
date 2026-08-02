@@ -79,7 +79,7 @@ export default async function EventDetailPage({
   const initiallyFollowing = Boolean(followRes.data);
 
   return (
-    <div className="mx-auto min-h-dvh max-w-2xl bg-[#080810] pb-28 text-white">
+    <div className="mx-auto min-h-dvh max-w-md bg-[#080810] pb-28 text-white">
       <TrackEventView eventId={event.id} />
       <header className="sticky top-0 z-40 flex items-center gap-3 border-b border-white/5 bg-[#080810]/90 px-4 py-4 backdrop-blur-md">
         <Link

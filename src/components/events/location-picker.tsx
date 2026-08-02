@@ -12,6 +12,9 @@ type LocationPickerProps = {
   placeholder?: string;
   variant?: "admin" | "compact";
   initialLabel?: string;
+  /** false = bez komunikatu o pinie na mapie (np. profil) */
+  showMapHint?: boolean;
+  inputId?: string;
 };
 
 function PinIcon({ className }: { className?: string }) {
@@ -38,6 +41,8 @@ export function LocationPicker({
   placeholder = "Wpisz nazwę miejsca, adres, plac lub budynek…",
   variant = "admin",
   initialLabel,
+  showMapHint = true,
+  inputId = "location",
 }: LocationPickerProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
@@ -122,8 +127,8 @@ export function LocationPicker({
         </span>
         <input
           ref={inputRef}
-          id="location"
-          name="location"
+          id={inputId}
+          name={inputId}
           type="text"
           value={inputValue}
           onChange={(e) => {
@@ -145,10 +150,14 @@ export function LocationPicker({
         <p className="mt-2 text-sm text-zinc-500">Ładowanie podpowiedzi miejsc…</p>
       )}
 
-      {value && (
+      {value && showMapHint && (
         <p className="mt-2 text-sm text-emerald-400/90">
           ✓ Lokalizacja wybrana — pin pojawi się na mapie
         </p>
+      )}
+
+      {value && !showMapHint && (
+        <p className="mt-2 text-sm text-emerald-400/90">✓ Lokalizacja wybrana</p>
       )}
 
       {!value && ready && !loadError && inputValue.trim().length > 0 && (

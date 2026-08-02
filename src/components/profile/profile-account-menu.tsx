@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 
-/** Menu zębatki na profilu użytkownika — jak u twórcy: Edytuj profil + Wyloguj. */
+/** Menu zębatki: Edytuj profil, Historia, Wyloguj. */
 export function ProfileAccountMenu({ userEmail }: { userEmail?: string | null }) {
   const [open, setOpen] = useState(false);
 
@@ -18,14 +19,39 @@ export function ProfileAccountMenu({ userEmail }: { userEmail?: string | null })
     return () => document.removeEventListener("mousedown", close);
   }, [open]);
 
+  const items = [
+    {
+      href: "/settings/profil",
+      label: "Edytuj profil",
+      icon: (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4 text-zinc-500">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+          <circle cx="12" cy="7" r="4" />
+        </svg>
+      ),
+    },
+    {
+      href: "/settings/historia",
+      label: "Historia",
+      icon: (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4 text-zinc-500">
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+          <line x1="16" y1="2" x2="16" y2="6" />
+          <line x1="8" y1="2" x2="8" y2="6" />
+          <line x1="3" y1="10" x2="21" y2="10" />
+        </svg>
+      ),
+    },
+  ] as const;
+
   return (
     <div className="relative" data-profile-account-menu="">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="cursor-pointer text-zinc-400 transition-colors hover:text-white"
-        title="Ustawienia konta"
-        aria-label="Ustawienia konta"
+        title="Konto"
+        aria-label="Konto"
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -52,27 +78,17 @@ export function ProfileAccountMenu({ userEmail }: { userEmail?: string | null })
           )}
 
           <div className="py-1.5">
-            <button
-              type="button"
-              onClick={() => {
-                setOpen(false);
-                window.location.href = "/settings";
-              }}
-              className="flex w-full cursor-pointer items-center gap-3 px-4 py-2.5 text-sm text-zinc-300 transition-colors hover:bg-white/5"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                className="h-4 w-4 text-zinc-500"
+            {items.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={() => setOpen(false)}
+                className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-zinc-300 transition-colors hover:bg-white/5"
               >
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                <circle cx="12" cy="7" r="4" />
-              </svg>
-              Edytuj profil
-            </button>
+                {item.icon}
+                {item.label}
+              </Link>
+            ))}
           </div>
 
           <div className="border-t border-white/10 px-3 py-2">

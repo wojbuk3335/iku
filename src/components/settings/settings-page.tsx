@@ -45,6 +45,7 @@ type SettingsPageProps = {
   birthDate: string | null;
   interests: string[];
   isPrivate: boolean;
+  username: string;
 };
 
 export function SettingsPage({
@@ -53,11 +54,13 @@ export function SettingsPage({
   birthDate,
   interests,
   isPrivate: initialIsPrivate,
+  username: initialUsername,
 }: SettingsPageProps) {
   const supabase = createClient();
   const dateBounds = birthDateInputBounds();
 
   const [name, setName] = useState(fullName ?? "");
+  const [username, setUsername] = useState(initialUsername);
   const [birth, setBirth] = useState(birthDate ?? "");
   const [isPrivate, setIsPrivate] = useState(initialIsPrivate);
   const [selected, setSelected] = useState<string[]>(
@@ -138,6 +141,7 @@ export function SettingsPage({
           fullName: name.trim(),
           birthDate: birth,
           isPrivate,
+          username,
         });
         await updateInterests(selected);
 
@@ -181,11 +185,12 @@ export function SettingsPage({
   }
 
   return (
-    <div className="mx-auto min-h-dvh max-w-2xl bg-[#080810] pb-28 text-white">
+    <div className="mx-auto min-h-dvh max-w-md bg-[#080810] pb-28 text-white">
       <header className="flex items-center justify-between px-4 pb-2 pt-5">
         <Link
           href="/profile"
           className="text-zinc-400 transition-colors hover:text-white"
+          aria-label="Wróć do profilu"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -228,6 +233,31 @@ export function SettingsPage({
                 autoComplete="name"
                 maxLength={80}
               />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-zinc-400">
+                Nazwa użytkownika
+              </label>
+              <div className="relative">
+                <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm text-zinc-500">
+                  @
+                </span>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) =>
+                    setUsername(e.target.value.toLowerCase().replace(/\s+/g, ""))
+                  }
+                  placeholder="twoja_nazwa"
+                  className={`${inputCls} pl-8`}
+                  autoComplete="username"
+                  maxLength={30}
+                  spellCheck={false}
+                />
+              </div>
+              <p className="mt-1.5 text-[11px] text-zinc-600">
+                Link: /profile/{username || "…"}
+              </p>
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-medium text-zinc-400">
