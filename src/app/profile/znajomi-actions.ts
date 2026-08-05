@@ -180,6 +180,86 @@ export async function searchUsers(query: string): Promise<SuggestedUser[]> {
   return Array.from(merged.values()).slice(0, 20);
 }
 
+/** Główna wyszukiwarka — wszyscy użytkownicy (także obserwowani / prywatni), bez siebie. */
+export async function searchAllUsers(query: string): Promise<SuggestedUser[]> {
+  const q = query.trim();
+  if (q.length < 1) return [];
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const selectCols = "id, full_name, avatar_url, email, username";
+
+  async function runSearch(withUsername: boolean) {
+    const cols = withUsername ? selectCols : "id, full_name, avatar_url, email";
+    const byName = await supabase
+      .from("profiles")
+      .select(cols)
+      .eq("role", "user")
+      .neq("id", user!.id)
+      .ilike("full_name", `%${q}%`)
+      .limit(20);
+
+    const byUsername = withUsername
+      ? await supabase
+          .from("profiles")
+          .select(cols)
+          .eq("role", "user")
+          .neq("id", user!.id)
+          .ilike("username", `%${q}%`)
+          .limit(20)
+      : { data: null as null, error: null };
+
+    const byEmail = await supabase
+      .from("profiles")
+      .select(cols)
+      .eq("role", "user")
+      .neq("id", user!.id)
+      .ilike("email", `%${q}%`)
+      .limit(20);
+
+    return { byName, byUsername, byEmail };
+  }
+
+  let { byName, byUsername, byEmail } = await runSearch(true);
+
+  // Fallback gdy kolumna username jeszcze nie istnieje
+  if (byName.error || byUsername.error || byEmail.error) {
+    const fallback = await runSearch(false);
+    byName = fallback.byName;
+    byUsername = fallback.byUsername;
+    byEmail = fallback.byEmail;
+  }
+
+  if (byName.error) console.error("searchAllUsers name:", byName.error.message);
+  if (byUsername.error) console.error("searchAllUsers username:", byUsername.error.message);
+  if (byEmail.error) console.error("searchAllUsers email:", byEmail.error.message);
+
+  const merged = new Map<string, SuggestedUser>();
+  for (const p of [...(byName.data ?? []), ...(byUsername.data ?? []), ...(byEmail.data ?? [])]) {
+    const row = p as {
+      id: string;
+      full_name: string | null;
+      avatar_url: string | null;
+      email: string | null;
+      username?: string | null;
+    };
+    merged.set(row.id, {
+      id: row.id,
+      full_name: row.full_name,
+      avatar_url: row.avatar_url,
+      email: row.email,
+      username: row.username ?? null,
+      mutual_count: 0,
+    });
+  }
+
+  return Array.from(merged.values()).slice(0, 20);
+}
+
 export async function followUser(targetUserId: string): Promise<void> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();

@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getFollowCounts } from "@/lib/profile/get-follow-counts";
 import { getAllBadgesWithProgress } from "@/lib/profile/badges";
-import { getUserPosts } from "@/app/profile/wall-actions";
+import { getUserPosts, getTaggedPosts } from "@/app/profile/wall-actions";
 import { getUserEventsByStatus } from "@/lib/profile/get-user-events";
 import {
   getFollowingUsers,
@@ -31,6 +31,7 @@ export type ProfilePageData = {
   following: number;
   badgesWithProgress: BadgeWithProgress[];
   posts: Post[];
+  taggedPosts: Post[];
   followingUsers: FollowingUser[];
   followerUsers: FollowingUser[];
   suggestedUsers: SuggestedUser[];
@@ -74,6 +75,7 @@ export async function loadProfilePageData(options: {
     followCounts,
     badgesWithProgress,
     posts,
+    taggedPosts,
     followingUsers,
     followerUsers,
     suggestedUsers,
@@ -85,6 +87,7 @@ export async function loadProfilePageData(options: {
     getFollowCounts(profileUserId).catch(() => ({ followers: 0, following: 0 })),
     getAllBadgesWithProgress(profileUserId).catch(() => []),
     getUserPosts(profileUserId).catch(() => []),
+    getTaggedPosts(profileUserId).catch(() => [] as Post[]),
     getFollowingUsers(profileUserId).catch(() => []),
     getFollowerUsers(profileUserId).catch(() => []),
     isOwner
@@ -122,6 +125,7 @@ export async function loadProfilePageData(options: {
     following: followCounts.following,
     badgesWithProgress,
     posts,
+    taggedPosts,
     followingUsers,
     followerUsers,
     suggestedUsers,

@@ -32,7 +32,12 @@ export type Comment = {
   author_email: string;
 };
 
-export async function createPost(content: string, imageUrl?: string | null, eventId?: string): Promise<string> {
+export async function createPost(
+  content: string,
+  imageUrl?: string | null,
+  eventId?: string,
+  taggedUserIds: string[] = [],
+): Promise<string> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Musisz być zalogowany.");
@@ -41,14 +46,34 @@ export async function createPost(content: string, imageUrl?: string | null, even
   if (!trimmed && !imageUrl) throw new Error("Post nie może być pusty.");
   if (trimmed.length > 500) throw new Error("Post może mieć max 500 znaków.");
 
+  // DB wymaga content length >= 1 — przy samym zdjęciu zapisujemy spację
+  const contentToSave = trimmed || " ";
+
   const { data, error } = await supabase.from("posts").insert({
     user_id: user.id,
-    content: trimmed,
+    content: contentToSave,
     image_url: imageUrl ?? null,
     event_id: eventId ?? null,
   }).select("id").single();
 
   if (error) throw new Error(error.message);
+
+  const uniqueTags = [...new Set(taggedUserIds)]
+    .filter((id) => id && id !== user.id)
+    .slice(0, 10);
+
+  if (uniqueTags.length > 0) {
+    const { error: tagError } = await supabase.from("post_tags").insert(
+      uniqueTags.map((taggedId) => ({
+        post_id: data.id,
+        user_id: taggedId,
+      })),
+    );
+    if (tagError) {
+      console.error("createPost tags:", tagError.message);
+    }
+  }
+
   revalidatePath("/profile", "layout");
   revalidatePath("/post", "layout");
   return data.id;
@@ -212,6 +237,82 @@ export async function getPostById(postId: string): Promise<Post | null> {
   }
 
   return mapPostRow(data, user?.id);
+}
+
+export type PostTaggedUser = {
+  id: string;
+  username: string | null;
+  full_name: string | null;
+  avatar_url: string | null;
+};
+
+export async function getPostTaggedUsers(postId: string): Promise<PostTaggedUser[]> {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("post_tags")
+    .select(`
+      user_id,
+      profiles!post_tags_user_id_fkey(username, full_name, avatar_url)
+    `)
+    .eq("post_id", postId);
+
+  if (error) {
+    console.error("getPostTaggedUsers:", error.message);
+    return [];
+  }
+
+  return (data ?? []).map((row) => {
+    const profile = row.profiles as unknown as {
+      username: string | null;
+      full_name: string | null;
+      avatar_url: string | null;
+    } | null;
+    return {
+      id: row.user_id,
+      username: profile?.username ?? null,
+      full_name: profile?.full_name ?? null,
+      avatar_url: profile?.avatar_url ?? null,
+    };
+  });
+}
+
+/** Posty, na których oznaczono danego użytkownika (zakładka Oznaczone). */
+export async function getTaggedPosts(taggedUserId: string): Promise<Post[]> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  const { data: tagRows, error: tagError } = await supabase
+    .from("post_tags")
+    .select("post_id")
+    .eq("user_id", taggedUserId);
+
+  if (tagError) {
+    console.error("getTaggedPosts tags:", tagError.message);
+    return [];
+  }
+
+  const postIds = [...new Set((tagRows ?? []).map((r) => r.post_id))];
+  if (postIds.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("posts")
+    .select(`
+      id, content, created_at, user_id, event_id, image_url,
+      profiles!posts_user_id_fkey(full_name, avatar_url, email, username),
+      events(title, location, location_name),
+      post_reactions(user_id),
+      post_comments(id)
+    `)
+    .in("id", postIds)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("getTaggedPosts posts:", error.message);
+    return [];
+  }
+
+  return (data ?? []).map((row) => mapPostRow(row, user?.id));
 }
 
 export async function getPostComments(postId: string): Promise<Comment[]> {

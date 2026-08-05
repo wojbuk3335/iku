@@ -9,12 +9,13 @@ import { LocationPicker } from "@/components/events/location-picker";
 import { ProfileAccountMenu } from "@/components/profile/profile-account-menu";
 import { updateBio, updateAvatarUrl, updateFullName, updateLocation } from "@/app/profile/actions";
 import { createPost } from "@/app/profile/wall-actions";
-import { followUser, unfollowUser, searchUsers } from "@/app/profile/znajomi-actions";
+import { followUser, unfollowUser, searchUsers, searchAllUsers } from "@/app/profile/znajomi-actions";
 import type { Event } from "@/types/event";
 import type { EventLocation } from "@/types/location";
 import type { BadgeWithProgress } from "@/lib/profile/badges";
 import type { Post } from "@/app/profile/wall-actions";
 import type { FollowingUser, SuggestedUser } from "@/app/profile/znajomi-actions";
+import { usernameFromEmail } from "@/lib/profile/username";
 
 type ProfilePageProps = {
   email: string;
@@ -33,6 +34,7 @@ type ProfilePageProps = {
   following: number;
   badgesWithProgress: BadgeWithProgress[];
   posts: Post[];
+  taggedPosts?: Post[];
   followingUsers: FollowingUser[];
   followerUsers: FollowingUser[];
   suggestedUsers: SuggestedUser[];
@@ -65,7 +67,7 @@ function getAvatarColor(email: string): string {
   return colors[index];
 }
 
-type Tab = "posty" | "badges" | "saved";
+type Tab = "posty" | "badges" | "saved" | "oznaczone";
 type StatsPanel = "followers" | "following" | "badges" | "posts" | null;
 
 function formatCount(n: number): string {
@@ -162,6 +164,7 @@ export function ProfilePage({
   following,
   badgesWithProgress,
   posts,
+  taggedPosts = [],
   followingUsers,
   followerUsers,
   suggestedUsers,
@@ -183,6 +186,12 @@ export function ProfilePage({
   const [postImagePreview, setPostImagePreview] = useState<string | null>(null);
   const [uploadingPostImage, setUploadingPostImage] = useState(false);
   const [localPosts, setLocalPosts] = useState<Post[]>(posts);
+  const [localTaggedPosts, setLocalTaggedPosts] = useState<Post[]>(taggedPosts);
+  const [taggedPeople, setTaggedPeople] = useState<SuggestedUser[]>([]);
+  const [tagQuery, setTagQuery] = useState("");
+  const [tagResults, setTagResults] = useState<SuggestedUser[]>([]);
+  const [tagSearching, setTagSearching] = useState(false);
+  const [tagPickerOpen, setTagPickerOpen] = useState(false);
   const [currentAvatarUrl, setCurrentAvatarUrl] = useState<string | null>(avatarUrl);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [editingName, setEditingName] = useState(false);
@@ -221,6 +230,7 @@ export function ProfilePage({
   // Przy zmianie profilu (nawigacja /profile/A → /profile/B) zsynchronizuj lokalny stan z propsami
   useEffect(() => {
     setLocalPosts(posts);
+    setLocalTaggedPosts(taggedPosts);
     setCurrentAvatarUrl(avatarUrl);
     setBioValue(bio ?? "");
     setNameValue(fullName ?? "");
@@ -237,6 +247,10 @@ export function ProfilePage({
     setEditingLocation(false);
     setSuggestQuery("");
     setSearchResults(null);
+    setTaggedPeople([]);
+    setTagQuery("");
+    setTagResults([]);
+    setTagPickerOpen(false);
     if (
       initialLocation &&
       initialLocationLat != null &&
@@ -323,7 +337,56 @@ export function ProfilePage({
     return () => clearTimeout(timer);
   }, [suggestQuery]);
 
+  useEffect(() => {
+    if (!tagPickerOpen) return;
+    const q = tagQuery.trim();
+    if (!q) {
+      setTagResults([]);
+      setTagSearching(false);
+      return;
+    }
+
+    setTagSearching(true);
+    const timer = setTimeout(async () => {
+      try {
+        const results = await searchAllUsers(q);
+        const selectedIds = new Set(taggedPeople.map((p) => p.id));
+        setTagResults(results.filter((u) => !selectedIds.has(u.id)));
+      } catch {
+        setTagResults([]);
+      } finally {
+        setTagSearching(false);
+      }
+    }, 280);
+
+    return () => clearTimeout(timer);
+  }, [tagQuery, tagPickerOpen, taggedPeople]);
+
   const displayedSuggestions = searchResults ?? localSuggestions;
+
+  function resetCompose() {
+    setPostContent("");
+    clearPostImage();
+    setTaggedPeople([]);
+    setTagQuery("");
+    setTagResults([]);
+    setTagPickerOpen(false);
+  }
+
+  function toggleTagPerson(person: SuggestedUser) {
+    setTaggedPeople((prev) => {
+      if (prev.some((p) => p.id === person.id)) {
+        return prev.filter((p) => p.id !== person.id);
+      }
+      if (prev.length >= 10) {
+        alert("Możesz oznaczyć max 10 osób.");
+        return prev;
+      }
+      return [...prev, person];
+    });
+    setTagQuery("");
+    setTagResults([]);
+  }
 
   async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -390,10 +453,29 @@ export function ProfilePage({
         imageUrl = data.publicUrl;
         setUploadingPostImage(false);
       }
-      const postId = await createPost(postContent, imageUrl);
+      let finalContent = postContent.trim();
+      for (const person of taggedPeople) {
+        const handle =
+          person.username?.trim() ||
+          usernameFromEmail(person.email, person.id);
+        const already = new RegExp(
+          `(^|\\s)@?${handle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
+          "i",
+        ).test(finalContent);
+        if (!already) {
+          finalContent = `${finalContent} @${handle}`.trim();
+        }
+      }
+
+      const postId = await createPost(
+        finalContent,
+        imageUrl,
+        undefined,
+        taggedPeople.map((p) => p.id),
+      );
       const newPost: Post = {
         id: postId,
-        content: postContent.trim(),
+        content: finalContent,
         image_url: imageUrl,
         created_at: new Date().toISOString(),
         user_id: userId,
@@ -409,8 +491,7 @@ export function ProfilePage({
         comment_count: 0,
       };
       setLocalPosts((prev) => [newPost, ...prev]);
-      setPostContent("");
-      clearPostImage();
+      resetCompose();
       setComposeOpen(false);
       setActiveTab("posty");
       router.push(`/post/${postId}`);
@@ -1063,7 +1144,8 @@ export function ProfilePage({
         )}
       </div>
 
-      {/* Podgląd odznak — jak na mockupu */}
+      {/* Podgląd odznak — tylko właściciel */}
+      {isOwner && (
       <section className="mt-5 px-4">
         <div className="mb-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
@@ -1120,14 +1202,16 @@ export function ProfilePage({
           </div>
         )}
       </section>
+      )}
 
-      {/* Tabs — styl jak na mockupu */}
+      {/* Tabs — właściciel: Posty/Odznaki/…, gość: Posty/Oznaczone */}
       <div className="mt-5 border-b border-white/10 px-2">
         <div className="flex min-w-0">
           {(
             [
               { key: "posty" as const, label: "Posty", show: true },
-              { key: "badges" as const, label: "Odznaki", show: true },
+              { key: "oznaczone" as const, label: "Oznaczone", show: !isOwner },
+              { key: "badges" as const, label: "Odznaki", show: isOwner },
               { key: "saved" as const, label: "Zapisane", show: isOwner },
               { key: "historia" as const, label: "Historia", show: isOwner },
             ] as const
@@ -1142,6 +1226,12 @@ export function ProfilePage({
                     <rect x="14" y="3" width="7" height="7" rx="1" />
                     <rect x="3" y="14" width="7" height="7" rx="1" />
                     <rect x="14" y="14" width="7" height="7" rx="1" />
+                  </svg>
+                ),
+                oznaczone: (
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+                    <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+                    <line x1="7" y1="7" x2="7.01" y2="7" />
                   </svg>
                 ),
                 badges: (
@@ -1223,8 +1313,40 @@ export function ProfilePage({
           </div>
         )}
 
+        {/* Oznaczone — posty, na których oznaczono tego użytkownika */}
+        {activeTab === "oznaczone" && !isOwner && (
+          <div className="space-y-3 pb-4">
+            {localTaggedPosts.length === 0 ? (
+              <div className="py-10 text-center text-sm text-zinc-600">
+                Brak oznaczonych postów.
+              </div>
+            ) : (
+              <div className="-mx-4 grid grid-cols-3 gap-0.5">
+                {localTaggedPosts.map((post) => (
+                  <Link
+                    key={post.id}
+                    href={`/post/${post.id}`}
+                    className="relative aspect-square overflow-hidden bg-white/5 transition-opacity hover:opacity-90"
+                  >
+                    {post.image_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={post.image_url} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center bg-[#12121a] p-2">
+                        <p className="line-clamp-4 text-center text-[10px] leading-snug text-zinc-400">
+                          {post.content?.trim() || "Post"}
+                        </p>
+                      </div>
+                    )}
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Odznaki */}
-        {activeTab === "badges" && (
+        {activeTab === "badges" && isOwner && (
           <div className="space-y-5 pb-4">
 
             {/* Utwórz własną odznakę */}
@@ -1389,8 +1511,7 @@ export function ProfilePage({
             onClick={() => {
               if (!postingContent) {
                 setComposeOpen(false);
-                clearPostImage();
-                setPostContent("");
+                resetCompose();
               }
             }}
           />
@@ -1402,8 +1523,7 @@ export function ProfilePage({
                 onClick={() => {
                   if (!postingContent) {
                     setComposeOpen(false);
-                    clearPostImage();
-                    setPostContent("");
+                    resetCompose();
                   }
                 }}
                 className="rounded-full p-1.5 text-zinc-400 hover:bg-white/10 hover:text-white"
@@ -1436,6 +1556,80 @@ export function ProfilePage({
               />
             </div>
 
+            {taggedPeople.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {taggedPeople.map((person) => {
+                  const handle =
+                    person.username?.trim() ||
+                    usernameFromEmail(person.email, person.id);
+                  return (
+                    <button
+                      key={person.id}
+                      type="button"
+                      onClick={() => toggleTagPerson(person)}
+                      className="inline-flex items-center gap-1 rounded-full border border-violet-500/30 bg-violet-500/15 px-2.5 py-1 text-xs font-medium text-violet-200"
+                    >
+                      @{handle}
+                      <span className="text-violet-400">×</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {tagPickerOpen && (
+              <div className="mt-3 rounded-2xl border border-white/10 bg-black/40 p-3">
+                <input
+                  type="search"
+                  value={tagQuery}
+                  onChange={(e) => setTagQuery(e.target.value)}
+                  placeholder="Szukaj osoby do oznaczenia…"
+                  className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-zinc-600 outline-none focus:border-violet-500/40"
+                  autoFocus
+                />
+                <div className="mt-2 max-h-40 space-y-1 overflow-y-auto">
+                  {tagSearching ? (
+                    <p className="px-1 py-2 text-xs text-zinc-600">Szukam…</p>
+                  ) : tagQuery.trim() && tagResults.length === 0 ? (
+                    <p className="px-1 py-2 text-xs text-zinc-600">Brak wyników.</p>
+                  ) : (
+                    tagResults.map((person) => {
+                      const name =
+                        person.full_name?.trim() ||
+                        person.email?.split("@")[0] ||
+                        "Użytkownik";
+                      const handle =
+                        person.username?.trim() ||
+                        usernameFromEmail(person.email, person.id);
+                      return (
+                        <button
+                          key={person.id}
+                          type="button"
+                          onClick={() => toggleTagPerson(person)}
+                          className="flex w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left transition-colors hover:bg-white/5"
+                        >
+                          <div className="h-8 w-8 shrink-0 overflow-hidden rounded-full bg-white/10">
+                            {person.avatar_url ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={person.avatar_url} alt="" className="h-full w-full object-cover" />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center text-[10px] font-bold text-zinc-400">
+                                {name.slice(0, 2).toUpperCase()}
+                              </div>
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-white">{name}</p>
+                            <p className="truncate text-xs text-zinc-500">@{handle}</p>
+                          </div>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
+
             {postImagePreview && (
               <div className="relative mt-3 overflow-hidden rounded-xl">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1453,20 +1647,37 @@ export function ProfilePage({
             )}
 
             <div className="mt-4 flex items-center justify-between border-t border-white/10 pt-3">
-              <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-400 transition-colors hover:text-zinc-200">
-                <input
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp,image/gif"
-                  className="sr-only"
-                  onChange={handlePostImageChange}
-                />
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
-                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                  <circle cx="8.5" cy="8.5" r="1.5" />
-                  <polyline points="21 15 16 10 5 21" />
-                </svg>
-                Zdjęcie
-              </label>
+              <div className="flex items-center gap-3">
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-400 transition-colors hover:text-zinc-200">
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    className="sr-only"
+                    onChange={handlePostImageChange}
+                  />
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                    <circle cx="8.5" cy="8.5" r="1.5" />
+                    <polyline points="21 15 16 10 5 21" />
+                  </svg>
+                  Zdjęcie
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setTagPickerOpen((v) => !v)}
+                  className={`flex items-center gap-2 text-sm transition-colors ${
+                    tagPickerOpen || taggedPeople.length > 0
+                      ? "text-violet-300"
+                      : "text-zinc-400 hover:text-zinc-200"
+                  }`}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+                    <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+                    <line x1="7" y1="7" x2="7.01" y2="7" />
+                  </svg>
+                  Oznacz{taggedPeople.length > 0 ? ` (${taggedPeople.length})` : ""}
+                </button>
+              </div>
               <div className="flex items-center gap-3">
                 <span className="text-xs text-zinc-600">{postContent.length}/500</span>
                 <button

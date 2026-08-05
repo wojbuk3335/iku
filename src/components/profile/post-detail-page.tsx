@@ -10,11 +10,14 @@ import {
   createComment,
   type Post,
   type Comment,
+  type PostTaggedUser,
 } from "@/app/profile/wall-actions";
 import { usernameFromEmail } from "@/lib/profile/username";
+import { linkifyPostText } from "@/components/profile/post-caption";
 
 type PostDetailPageProps = {
   post: Post;
+  taggedUsers?: PostTaggedUser[];
   currentUserId: string;
   currentUserName: string | null;
   currentUserAvatar: string | null;
@@ -48,6 +51,7 @@ function formatRelativeTime(iso: string): string {
 
 export function PostDetailPage({
   post: initialPost,
+  taggedUsers = [],
   currentUserId,
   currentUserName,
   currentUserAvatar,
@@ -70,6 +74,11 @@ export function PostDetailPage({
     post.author_email.split("@")[0]?.replace(/[._-]/g, " ") ||
     authorUsername;
   const authorInitials = getInitials(post.author_email || authorUsername);
+  const taggedHandles = taggedUsers
+    .map((u) => u.username?.trim() || "")
+    .filter(Boolean);
+  const captionText = post.content?.trim() ?? "";
+  const showCaption = Boolean(captionText);
 
   useEffect(() => {
     let cancelled = false;
@@ -212,7 +221,7 @@ export function PostDetailPage({
       ) : (
         <div className="border-y border-white/5 bg-[#0f0f18] px-4 py-8">
           <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-zinc-100">
-            {post.content}
+            {linkifyPostText(captionText, taggedHandles)}
           </p>
         </div>
       )}
@@ -274,7 +283,7 @@ export function PostDetailPage({
       </div>
 
       {/* Caption */}
-      {post.image_url && post.content && (
+      {post.image_url && showCaption && (
         <div className="px-4 pt-2">
           <p className="text-sm leading-relaxed text-zinc-200">
             <Link
@@ -283,11 +292,34 @@ export function PostDetailPage({
             >
               {authorUsername}
             </Link>{" "}
-            {post.content}
+            {linkifyPostText(captionText, taggedHandles)}
           </p>
         </div>
       )}
-      {!post.image_url && null}
+
+      {taggedUsers.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 px-4 pt-2">
+          <span className="text-xs text-zinc-500">z</span>
+          {taggedUsers.map((person, index) => {
+            const handle =
+              person.username?.trim() ||
+              usernameFromEmail(null, person.id);
+            return (
+              <span key={person.id} className="text-xs">
+                <Link
+                  href={`/profile/${encodeURIComponent(handle)}`}
+                  className="font-semibold text-violet-300 hover:underline"
+                >
+                  @{handle}
+                </Link>
+                {index < taggedUsers.length - 1 ? (
+                  <span className="text-zinc-600">, </span>
+                ) : null}
+              </span>
+            );
+          })}
+        </div>
+      )}
 
       <p className="px-4 pt-1.5 text-xs text-zinc-600">{formatRelativeTime(post.created_at)}</p>
 

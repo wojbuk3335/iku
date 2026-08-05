@@ -1,11 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { BottomNav } from "@/components/events/bottom-nav";
 import { EventCard } from "@/components/events/event-card";
 import { HomeHeader } from "@/components/events/home-header";
 import { StoriesRow } from "@/components/events/stories-row";
 import type { StoryAuthorGroup } from "@/app/stories/actions";
+import { searchAllUsers, type SuggestedUser } from "@/app/profile/znajomi-actions";
+import { usernameFromEmail } from "@/lib/profile/username";
 import {
   countCategoryMatches,
   getCategoryMeta,
@@ -45,6 +48,23 @@ function filterEvents(events: Event[], query: string) {
       (event.description?.toLowerCase().includes(q) ?? false)
     );
   });
+}
+
+function userInitials(user: SuggestedUser): string {
+  if (user.full_name?.trim()) {
+    const parts = user.full_name.trim().split(/\s+/);
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+  const local = (user.email ?? "?").split("@")[0];
+  return local.slice(0, 2).toUpperCase();
+}
+
+function profileHref(user: SuggestedUser): string {
+  const username =
+    user.username?.trim() ||
+    usernameFromEmail(user.email, user.id);
+  return `/profile/${encodeURIComponent(username)}`;
 }
 
 function ScrollableEventFeed({
@@ -91,6 +111,8 @@ function EventCards({
 
 export function HomeFeed({ events, interests, goingCounts, storyGroups, currentUserId }: HomeFeedProps) {
   const [query, setQuery] = useState("");
+  const [userResults, setUserResults] = useState<SuggestedUser[]>([]);
+  const [searchingUsers, setSearchingUsers] = useState(false);
   const interestCategories = interests as EventCategory[];
 
   const sortedEvents = useMemo(
@@ -107,10 +129,35 @@ export function HomeFeed({ events, interests, goingCounts, storyGroups, currentU
     [sortedEvents, query],
   );
 
+  useEffect(() => {
+    const q = query.trim();
+    if (!q) {
+      setUserResults([]);
+      setSearchingUsers(false);
+      return;
+    }
+
+    setSearchingUsers(true);
+    const timer = setTimeout(async () => {
+      try {
+        const results = await searchAllUsers(q);
+        setUserResults(results);
+      } catch {
+        setUserResults([]);
+      } finally {
+        setSearchingUsers(false);
+      }
+    }, 280);
+
+    return () => clearTimeout(timer);
+  }, [query]);
+
   const totalCount = events.length;
   const filteredCount = visibleEvents.length;
   const hasQuery = query.trim().length > 0;
   const showInterestMatches = hasInterestMatches(sortedEvents, interestCategories);
+  const hasUserResults = userResults.length > 0;
+  const hasAnyResults = filteredCount > 0 || hasUserResults || searchingUsers;
 
   const interestLabels = interestCategories
     .map((id) => getCategoryMeta(id).label)
@@ -143,7 +190,7 @@ export function HomeFeed({ events, interests, goingCounts, storyGroups, currentU
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Szukaj wydarzeń po tytule, miejscu lub kategorii…"
+            placeholder="Szukaj wydarzeń i użytkowników…"
             className="flex-1 bg-transparent text-sm text-white placeholder-zinc-600 outline-none"
           />
           {query && (
@@ -160,50 +207,119 @@ export function HomeFeed({ events, interests, goingCounts, storyGroups, currentU
       </div>
 
       <main className="px-4 pt-4">
-        {totalCount === 0 ? (
+        {!hasQuery && totalCount === 0 ? (
           <div className="px-2 py-16 text-center">
             <p className="text-lg font-medium text-zinc-300">Brak wydarzeń</p>
             <p className="mt-2 text-sm text-zinc-500">
               Admin może dodać pierwsze wydarzenie w panelu administracyjnym.
             </p>
           </div>
-        ) : filteredCount === 0 ? (
+        ) : hasQuery && !hasAnyResults ? (
           <div className="px-2 py-16 text-center">
-            <p className="text-3xl">🔍</p>
-            <p className="mt-3 text-lg font-medium text-zinc-300">Brak wyników</p>
+            <p className="text-lg font-medium text-zinc-300">Brak wyników</p>
             <p className="mt-1 text-sm text-zinc-500">
-              Spróbuj innej frazy wyszukiwania.
+              Spróbuj innej frazy — wydarzenia lub użytkownicy.
             </p>
           </div>
         ) : (
-          <section>
-            <div className="mb-3 px-1">
-              <h2 className="text-lg font-bold text-white">
-                {hasQuery ? "Wyniki wyszukiwania" : "Dla Ciebie"}
-              </h2>
-              <p className="mt-0.5 text-sm text-zinc-500">
-                {hasQuery
-                  ? `${filteredCount} ${filteredCount === 1 ? "wydarzenie" : "wydarzeń"}`
-                  : interestLabels
-                    ? `Twoje zainteresowania: ${interestLabels}`
-                    : "Posortowane według daty wydarzenia"}
-              </p>
-            </div>
-
-            {!hasQuery && !showInterestMatches && totalCount > 0 && (
-              <div className="mb-4 rounded-2xl border border-violet-500/20 bg-violet-500/10 px-4 py-3 text-sm text-violet-200/90">
-                Brak wydarzeń w Twoich kategoriach — poniżej inne propozycje.
-              </div>
+          <div className="space-y-6">
+            {hasQuery && (hasUserResults || searchingUsers) && (
+              <section>
+                <div className="mb-3 px-1">
+                  <h2 className="text-lg font-bold text-white">Użytkownicy</h2>
+                  <p className="mt-0.5 text-sm text-zinc-500">
+                    {searchingUsers
+                      ? "Szukam…"
+                      : `${userResults.length} ${userResults.length === 1 ? "osoba" : "osób"}`}
+                  </p>
+                </div>
+                <ul className="space-y-2">
+                  {userResults.map((person) => {
+                    const name =
+                      person.full_name?.trim() ||
+                      person.email?.split("@")[0] ||
+                      "Użytkownik";
+                    const handle =
+                      person.username?.trim() ||
+                      usernameFromEmail(person.email, person.id);
+                    return (
+                      <li key={person.id}>
+                        <Link
+                          href={profileHref(person)}
+                          className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2.5 transition-colors hover:bg-white/[0.06]"
+                        >
+                          <div className="h-11 w-11 shrink-0 overflow-hidden rounded-full bg-white/10">
+                            {person.avatar_url ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={person.avatar_url}
+                                alt=""
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-violet-500 to-indigo-700 text-xs font-bold">
+                                {userInitials(person)}
+                              </div>
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-semibold text-white">{name}</p>
+                            <p className="truncate text-xs text-zinc-500">@{handle}</p>
+                          </div>
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            className="h-4 w-4 shrink-0 text-zinc-600"
+                            aria-hidden
+                          >
+                            <polyline points="9 18 15 12 9 6" />
+                          </svg>
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
             )}
 
-            <ScrollableEventFeed eventCount={filteredCount}>
-              <EventCards
-                events={visibleEvents}
-                interests={interestCategories}
-                goingCounts={goingCounts}
-              />
-            </ScrollableEventFeed>
-          </section>
+            {(filteredCount > 0 || !hasQuery) && totalCount > 0 && (
+              <section>
+                <div className="mb-3 px-1">
+                  <h2 className="text-lg font-bold text-white">
+                    {hasQuery ? "Wydarzenia" : "Dla Ciebie"}
+                  </h2>
+                  <p className="mt-0.5 text-sm text-zinc-500">
+                    {hasQuery
+                      ? `${filteredCount} ${filteredCount === 1 ? "wydarzenie" : "wydarzeń"}`
+                      : interestLabels
+                        ? `Twoje zainteresowania: ${interestLabels}`
+                        : "Posortowane według daty wydarzenia"}
+                  </p>
+                </div>
+
+                {!hasQuery && !showInterestMatches && totalCount > 0 && (
+                  <div className="mb-4 rounded-2xl border border-violet-500/20 bg-violet-500/10 px-4 py-3 text-sm text-violet-200/90">
+                    Brak wydarzeń w Twoich kategoriach — poniżej inne propozycje.
+                  </div>
+                )}
+
+                {filteredCount === 0 && hasQuery ? (
+                  <p className="px-1 py-4 text-sm text-zinc-600">Brak pasujących wydarzeń.</p>
+                ) : (
+                  <ScrollableEventFeed eventCount={filteredCount}>
+                    <EventCards
+                      events={visibleEvents}
+                      interests={interestCategories}
+                      goingCounts={goingCounts}
+                    />
+                  </ScrollableEventFeed>
+                )}
+              </section>
+            )}
+          </div>
         )}
       </main>
 

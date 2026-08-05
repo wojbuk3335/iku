@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { getSessionProfile } from "@/lib/auth/get-session-profile";
-import { getPostById } from "@/app/profile/wall-actions";
+import { getPostById, getPostTaggedUsers } from "@/app/profile/wall-actions";
 import { PostDetailPage } from "@/components/profile/post-detail-page";
 
 export default async function PostPage({
@@ -24,9 +24,12 @@ export default async function PostPage({
     notFound();
   }
 
+  const taggedUsers = await getPostTaggedUsers(id);
+
   return (
     <PostDetailPage
       post={post}
+      taggedUsers={taggedUsers}
       currentUserId={user.id}
       currentUserName={profile?.full_name ?? null}
       currentUserAvatar={profile?.avatar_url ?? null}
