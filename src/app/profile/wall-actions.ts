@@ -2,11 +2,18 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import {
+  coverMediaUrl,
+  normalizePostMedia,
+  type PostMediaItem,
+  MAX_POST_IMAGES,
+} from "@/lib/profile/post-media";
 
 export type Post = {
   id: string;
   content: string;
   image_url: string | null;
+  media_urls: PostMediaItem[];
   created_at: string;
   user_id: string;
   author_name: string | null;
@@ -37,13 +44,19 @@ export async function createPost(
   imageUrl?: string | null,
   eventId?: string,
   taggedUserIds: string[] = [],
+  mediaItems: PostMediaItem[] = [],
 ): Promise<string> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Musisz być zalogowany.");
 
+  const media = normalizePostMedia(imageUrl, mediaItems).slice(0, MAX_POST_IMAGES);
+  const cover = coverMediaUrl(media) ?? imageUrl ?? null;
+
   const trimmed = content.trim();
-  if (!trimmed && !imageUrl) throw new Error("Post nie może być pusty.");
+  if (!trimmed && media.length === 0 && !cover) {
+    throw new Error("Post nie może być pusty.");
+  }
   if (trimmed.length > 500) throw new Error("Post może mieć max 500 znaków.");
 
   // DB wymaga content length >= 1 — przy samym zdjęciu zapisujemy spację
@@ -52,11 +65,38 @@ export async function createPost(
   const { data, error } = await supabase.from("posts").insert({
     user_id: user.id,
     content: contentToSave,
-    image_url: imageUrl ?? null,
+    image_url: cover,
+    media_urls: media,
     event_id: eventId ?? null,
   }).select("id").single();
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    // Fallback gdy brak kolumny media_urls (migracja jeszcze nie zastosowana)
+    if (error.message.toLowerCase().includes("media_urls")) {
+      const fallback = await supabase.from("posts").insert({
+        user_id: user.id,
+        content: contentToSave,
+        image_url: cover,
+        event_id: eventId ?? null,
+      }).select("id").single();
+      if (fallback.error) throw new Error(fallback.error.message);
+      const uniqueTagsFb = [...new Set(taggedUserIds)]
+        .filter((id) => id && id !== user.id)
+        .slice(0, 10);
+      if (uniqueTagsFb.length > 0) {
+        await supabase.from("post_tags").insert(
+          uniqueTagsFb.map((taggedId) => ({
+            post_id: fallback.data.id,
+            user_id: taggedId,
+          })),
+        );
+      }
+      revalidatePath("/profile", "layout");
+      revalidatePath("/post", "layout");
+      return fallback.data.id;
+    }
+    throw new Error(error.message);
+  }
 
   const uniqueTags = [...new Set(taggedUserIds)]
     .filter((id) => id && id !== user.id)
@@ -123,6 +163,7 @@ function mapPostRow(
     user_id: string;
     event_id: string | null;
     image_url?: string | null;
+    media_urls?: unknown;
     profiles: unknown;
     events: unknown;
     post_reactions?: { user_id: string }[] | null;
@@ -139,11 +180,14 @@ function mapPostRow(
     event?.location_name?.trim() ||
     event?.location?.trim() ||
     null;
+  const image_url = row.image_url ?? imageUrlFallback ?? null;
+  const media_urls = normalizePostMedia(image_url, row.media_urls);
 
   return {
     id: row.id,
     content: row.content,
-    image_url: row.image_url ?? imageUrlFallback ?? null,
+    image_url: coverMediaUrl(media_urls) ?? image_url,
+    media_urls,
     created_at: row.created_at,
     user_id: row.user_id,
     author_name: profile?.full_name ?? null,
@@ -166,7 +210,7 @@ export async function getUserPosts(userId: string): Promise<Post[]> {
   const { data, error } = await supabase
     .from("posts")
     .select(`
-      id, content, created_at, user_id, event_id, image_url,
+      id, content, created_at, user_id, event_id, image_url, media_urls,
       profiles!posts_user_id_fkey(full_name, avatar_url, email, username),
       events(title, location, location_name),
       post_reactions(user_id),
@@ -176,13 +220,13 @@ export async function getUserPosts(userId: string): Promise<Post[]> {
     .order("created_at", { ascending: false });
 
   if (error) {
-    // Fallback bez username / image_url / location (starszy schemat)
+    // Fallback bez media_urls / username / location (starszy schemat)
     const fallback = await supabase
       .from("posts")
       .select(`
-        id, content, created_at, user_id, event_id,
-        profiles!posts_user_id_fkey(full_name, avatar_url, email),
-        events(title),
+        id, content, created_at, user_id, event_id, image_url,
+        profiles!posts_user_id_fkey(full_name, avatar_url, email, username),
+        events(title, location, location_name),
         post_reactions(user_id),
         post_comments(id)
       `)
@@ -194,22 +238,7 @@ export async function getUserPosts(userId: string): Promise<Post[]> {
       return [];
     }
 
-    const ids = (fallback.data ?? []).map((r) => r.id);
-    const imageMap: Record<string, string | null> = {};
-    if (ids.length > 0) {
-      const { data: imgData } = await supabase
-        .from("posts")
-        .select("id, image_url")
-        .in("id", ids)
-        .then((res) => (res.error ? { data: null } : res));
-      for (const row of imgData ?? []) {
-        imageMap[row.id] = (row as unknown as { image_url: string | null }).image_url ?? null;
-      }
-    }
-
-    return (fallback.data ?? []).map((row) =>
-      mapPostRow(row, user?.id, imageMap[row.id] ?? null),
-    );
+    return (fallback.data ?? []).map((row) => mapPostRow(row, user?.id));
   }
 
   return (data ?? []).map((row) => mapPostRow(row, user?.id));
@@ -222,7 +251,7 @@ export async function getPostById(postId: string): Promise<Post | null> {
   const { data, error } = await supabase
     .from("posts")
     .select(`
-      id, content, created_at, user_id, event_id, image_url,
+      id, content, created_at, user_id, event_id, image_url, media_urls,
       profiles!posts_user_id_fkey(full_name, avatar_url, email, username),
       events(title, location, location_name),
       post_reactions(user_id),
@@ -230,6 +259,25 @@ export async function getPostById(postId: string): Promise<Post | null> {
     `)
     .eq("id", postId)
     .maybeSingle();
+
+  if (error && error.message.toLowerCase().includes("media_urls")) {
+    const fallback = await supabase
+      .from("posts")
+      .select(`
+        id, content, created_at, user_id, event_id, image_url,
+        profiles!posts_user_id_fkey(full_name, avatar_url, email, username),
+        events(title, location, location_name),
+        post_reactions(user_id),
+        post_comments(id)
+      `)
+      .eq("id", postId)
+      .maybeSingle();
+    if (fallback.error || !fallback.data) {
+      if (fallback.error) console.error("getPostById:", fallback.error.message);
+      return null;
+    }
+    return mapPostRow(fallback.data, user?.id);
+  }
 
   if (error || !data) {
     if (error) console.error("getPostById:", error.message);
@@ -298,7 +346,7 @@ export async function getTaggedPosts(taggedUserId: string): Promise<Post[]> {
   const { data, error } = await supabase
     .from("posts")
     .select(`
-      id, content, created_at, user_id, event_id, image_url,
+      id, content, created_at, user_id, event_id, image_url, media_urls,
       profiles!posts_user_id_fkey(full_name, avatar_url, email, username),
       events(title, location, location_name),
       post_reactions(user_id),
@@ -308,6 +356,24 @@ export async function getTaggedPosts(taggedUserId: string): Promise<Post[]> {
     .order("created_at", { ascending: false });
 
   if (error) {
+    if (error.message.toLowerCase().includes("media_urls")) {
+      const fallback = await supabase
+        .from("posts")
+        .select(`
+          id, content, created_at, user_id, event_id, image_url,
+          profiles!posts_user_id_fkey(full_name, avatar_url, email, username),
+          events(title, location, location_name),
+          post_reactions(user_id),
+          post_comments(id)
+        `)
+        .in("id", postIds)
+        .order("created_at", { ascending: false });
+      if (fallback.error) {
+        console.error("getTaggedPosts posts:", fallback.error.message);
+        return [];
+      }
+      return (fallback.data ?? []).map((row) => mapPostRow(row, user?.id));
+    }
     console.error("getTaggedPosts posts:", error.message);
     return [];
   }
@@ -365,4 +431,121 @@ export async function createComment(postId: string, content: string): Promise<vo
   if (error) throw new Error(error.message);
   revalidatePath("/profile", "layout");
   revalidatePath(`/post/${postId}`);
+}
+
+export async function isPostSaved(postId: string): Promise<boolean> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return false;
+
+  const { data, error } = await supabase
+    .from("saved_posts")
+    .select("post_id")
+    .eq("post_id", postId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (error) {
+    console.error("isPostSaved:", error.message);
+    return false;
+  }
+  return Boolean(data);
+}
+
+/** Zwraca true jeśli post jest teraz zapisany. */
+export async function toggleSavedPost(postId: string): Promise<boolean> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Musisz być zalogowany.");
+
+  const { data: existing } = await supabase
+    .from("saved_posts")
+    .select("post_id")
+    .eq("post_id", postId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (existing) {
+    const { error } = await supabase
+      .from("saved_posts")
+      .delete()
+      .eq("post_id", postId)
+      .eq("user_id", user.id);
+    if (error) throw new Error(error.message);
+    revalidatePath("/profile", "layout");
+    revalidatePath(`/post/${postId}`);
+    return false;
+  }
+
+  const { error } = await supabase.from("saved_posts").insert({
+    post_id: postId,
+    user_id: user.id,
+  });
+  if (error) throw new Error(error.message);
+  revalidatePath("/profile", "layout");
+  revalidatePath(`/post/${postId}`);
+  return true;
+}
+
+export async function getSavedPosts(userId: string): Promise<Post[]> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  // Tylko własne zapisane (RLS)
+  if (!user || user.id !== userId) return [];
+
+  const { data: savedRows, error: savedError } = await supabase
+    .from("saved_posts")
+    .select("post_id, created_at")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+
+  if (savedError) {
+    console.error("getSavedPosts:", savedError.message);
+    return [];
+  }
+
+  const postIds = (savedRows ?? []).map((r) => r.post_id);
+  if (postIds.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("posts")
+    .select(`
+      id, content, created_at, user_id, event_id, image_url, media_urls,
+      profiles!posts_user_id_fkey(full_name, avatar_url, email, username),
+      events(title, location, location_name),
+      post_reactions(user_id),
+      post_comments(id)
+    `)
+    .in("id", postIds);
+
+  if (error) {
+    if (error.message.toLowerCase().includes("media_urls")) {
+      const fallback = await supabase
+        .from("posts")
+        .select(`
+          id, content, created_at, user_id, event_id, image_url,
+          profiles!posts_user_id_fkey(full_name, avatar_url, email, username),
+          events(title, location, location_name),
+          post_reactions(user_id),
+          post_comments(id)
+        `)
+        .in("id", postIds);
+      if (fallback.error) {
+        console.error("getSavedPosts posts:", fallback.error.message);
+        return [];
+      }
+      const order = new Map(postIds.map((id, i) => [id, i]));
+      return (fallback.data ?? [])
+        .map((row) => mapPostRow(row, user.id))
+        .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+    }
+    console.error("getSavedPosts posts:", error.message);
+    return [];
+  }
+
+  const order = new Map(postIds.map((id, i) => [id, i]));
+  return (data ?? [])
+    .map((row) => mapPostRow(row, user.id))
+    .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
 }

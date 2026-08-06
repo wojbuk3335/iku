@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { getSessionProfile } from "@/lib/auth/get-session-profile";
-import { getPostById, getPostTaggedUsers } from "@/app/profile/wall-actions";
+import { getPostById, getPostTaggedUsers, isPostSaved } from "@/app/profile/wall-actions";
 import { PostDetailPage } from "@/components/profile/post-detail-page";
 
 export default async function PostPage({
@@ -24,7 +24,10 @@ export default async function PostPage({
     notFound();
   }
 
-  const taggedUsers = await getPostTaggedUsers(id);
+  const [taggedUsers, initiallySaved] = await Promise.all([
+    getPostTaggedUsers(id),
+    isPostSaved(id),
+  ]);
 
   return (
     <PostDetailPage
@@ -34,6 +37,7 @@ export default async function PostPage({
       currentUserName={profile?.full_name ?? null}
       currentUserAvatar={profile?.avatar_url ?? null}
       currentUserEmail={user.email ?? profile?.email ?? ""}
+      initiallySaved={initiallySaved}
     />
   );
 }

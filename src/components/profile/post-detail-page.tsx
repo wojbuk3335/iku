@@ -8,12 +8,14 @@ import {
   toggleReaction,
   getPostComments,
   createComment,
+  toggleSavedPost,
   type Post,
   type Comment,
   type PostTaggedUser,
 } from "@/app/profile/wall-actions";
 import { usernameFromEmail } from "@/lib/profile/username";
 import { linkifyPostText } from "@/components/profile/post-caption";
+import { PostMediaCollage, normalizePostMedia } from "@/components/profile/post-media";
 
 type PostDetailPageProps = {
   post: Post;
@@ -22,6 +24,7 @@ type PostDetailPageProps = {
   currentUserName: string | null;
   currentUserAvatar: string | null;
   currentUserEmail: string;
+  initiallySaved?: boolean;
 };
 
 function getInitials(email: string): string {
@@ -56,6 +59,7 @@ export function PostDetailPage({
   currentUserName,
   currentUserAvatar,
   currentUserEmail,
+  initiallySaved = false,
 }: PostDetailPageProps) {
   const router = useRouter();
   const [post, setPost] = useState(initialPost);
@@ -65,6 +69,10 @@ export function PostDetailPage({
   const [submitting, setSubmitting] = useState(false);
   const [reacting, setReacting] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [saved, setSaved] = useState(initiallySaved);
+  const [saving, setSaving] = useState(false);
+
+  const isOwnPost = post.user_id === currentUserId;
 
   const authorUsername =
     post.author_username ||
@@ -79,6 +87,8 @@ export function PostDetailPage({
     .filter(Boolean);
   const captionText = post.content?.trim() ?? "";
   const showCaption = Boolean(captionText);
+  const media = normalizePostMedia(post.image_url, post.media_urls);
+  const hasMedia = media.length > 0;
 
   useEffect(() => {
     let cancelled = false;
@@ -111,6 +121,22 @@ export function PostDetailPage({
       alert("Nie udało się zareagować.");
     } finally {
       setReacting(false);
+    }
+  }
+
+  async function handleToggleSave() {
+    if (saving || isOwnPost) return;
+    setSaving(true);
+    const prev = saved;
+    setSaved(!prev);
+    try {
+      const nowSaved = await toggleSavedPost(post.id);
+      setSaved(nowSaved);
+    } catch {
+      setSaved(prev);
+      alert("Nie udało się zapisać posta.");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -204,10 +230,15 @@ export function PostDetailPage({
       </header>
 
       {/* Media */}
-      {post.image_url ? (
-        <div className="relative aspect-square w-full bg-black">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={post.image_url} alt="" className="h-full w-full object-cover" />
+      {hasMedia ? (
+        <div className="relative w-full bg-black">
+          {media.length === 1 ? (
+            <div className="relative aspect-square w-full">
+              <PostMediaCollage media={media} className="h-full w-full" />
+            </div>
+          ) : (
+            <PostMediaCollage media={media} className="w-full" />
+          )}
           {(post.event_location || post.event_title) && (
             <div className="absolute bottom-3 left-3 flex max-w-[85%] items-center gap-1.5 rounded-full bg-black/65 px-2.5 py-1 text-[11px] text-white backdrop-blur-sm">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3 shrink-0 text-violet-300">
@@ -264,26 +295,51 @@ export function PostDetailPage({
           </svg>
         </button>
 
-        <button
-          type="button"
-          onClick={() => void handleShare()}
-          className="ml-auto flex items-center gap-1.5 rounded-full px-2 py-1.5 text-sm text-zinc-300 transition-colors hover:text-white"
-          aria-label="Udostępnij link"
-          title={copied ? "Skopiowano" : "Udostępnij"}
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-6 w-6">
-            <circle cx="18" cy="5" r="3" />
-            <circle cx="6" cy="12" r="3" />
-            <circle cx="18" cy="19" r="3" />
-            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-            <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-          </svg>
-          {copied && <span className="text-xs text-emerald-400">OK</span>}
-        </button>
+        {!isOwnPost && (
+          <button
+            type="button"
+            onClick={() => void handleToggleSave()}
+            disabled={saving}
+            className={`ml-auto flex items-center gap-1.5 rounded-full px-2 py-1.5 text-sm transition-colors ${
+              saved ? "text-violet-300" : "text-zinc-300 hover:text-white"
+            }`}
+            aria-label={saved ? "Usuń z zapisanych" : "Zapisz post"}
+            title={saved ? "Usuń z zapisanych" : "Zapisz post"}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill={saved ? "currentColor" : "none"}
+              stroke="currentColor"
+              strokeWidth="1.8"
+              className="h-6 w-6"
+            >
+              <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" strokeLinejoin="round" />
+            </svg>
+          </button>
+        )}
+        {isOwnPost && (
+          <button
+            type="button"
+            onClick={() => void handleShare()}
+            className="ml-auto flex items-center gap-1.5 rounded-full px-2 py-1.5 text-sm text-zinc-300 transition-colors hover:text-white"
+            aria-label="Udostępnij link"
+            title={copied ? "Skopiowano" : "Udostępnij"}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-6 w-6">
+              <circle cx="18" cy="5" r="3" />
+              <circle cx="6" cy="12" r="3" />
+              <circle cx="18" cy="19" r="3" />
+              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+              <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+            </svg>
+            {copied && <span className="text-xs text-emerald-400">OK</span>}
+          </button>
+        )}
       </div>
 
       {/* Caption */}
-      {post.image_url && showCaption && (
+      {hasMedia && showCaption && (
         <div className="px-4 pt-2">
           <p className="text-sm leading-relaxed text-zinc-200">
             <Link

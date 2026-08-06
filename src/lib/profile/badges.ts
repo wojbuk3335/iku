@@ -37,6 +37,9 @@ const BADGE_CRITERIA: Record<string, { statKey: "going" | "saved" | "following" 
   explorer:             { statKey: "going",     target: 5  },
   weekend_explorer:     { statKey: "going",     target: 3  },
   top_participant:      { statKey: "going",     target: 20 },
+  social_butterfly:     { statKey: "following", target: 5  },
+  city_hopper:          { statKey: "going",     target: 8  },
+  loyal_fan:            { statKey: "saved",     target: 10 },
 };
 
 // Preferred display order for badges tab
@@ -53,6 +56,9 @@ const BADGE_ORDER = [
   "night_player",
   "explorer",
   "weekend_explorer",
+  "social_butterfly",
+  "city_hopper",
+  "loyal_fan",
 ];
 
 // Static fallback definitions — always shown even if DB is missing some rows
@@ -69,6 +75,9 @@ const STATIC_BADGE_DEFS: Array<{ id: string; label: string; emoji: string; descr
   { id: "explorer",            label: "Eksplorator",           emoji: "🧭", description: "Uczestnik wydarzeń z 5 różnych kategorii",        rarity: "Rzadka"     },
   { id: "weekend_explorer",    label: "Weekendowy Odkrywca",   emoji: "🗺️", description: "Uczestnik 3 wydarzeń w jeden weekend",            rarity: "Powszechna" },
   { id: "top_participant",     label: "Top uczestnik",         emoji: "🥇", description: "Udział w 20 wydarzeniach",                        rarity: "Epicka"     },
+  { id: "social_butterfly",    label: "Motyl towarzyski",      emoji: "🦋", description: "Obserwujesz 5 osób na IKU",                       rarity: "Powszechna" },
+  { id: "city_hopper",         label: "Odkrywca miasta",       emoji: "🏙️", description: "Udział w 8 wydarzeniach",                         rarity: "Rzadka"     },
+  { id: "loyal_fan",           label: "Wierny fan",            emoji: "❤️", description: "Zapisałeś 10 lub więcej wydarzeń",                rarity: "Epicka"     },
 ];
 
 export async function getAllBadgesWithProgress(userId: string): Promise<BadgeWithProgress[]> {
@@ -179,6 +188,9 @@ export async function checkAndAwardBadges(userId: string): Promise<void> {
   if (going >= 10 && !awarded.has("night_player"))          toAward.push("night_player");
   if (going >= 5  && !awarded.has("explorer"))              toAward.push("explorer");
   if (going >= 3  && !awarded.has("weekend_explorer"))      toAward.push("weekend_explorer");
+  if (following >= 5 && !awarded.has("social_butterfly"))   toAward.push("social_butterfly");
+  if (going >= 8  && !awarded.has("city_hopper"))           toAward.push("city_hopper");
+  if (saved >= 10 && !awarded.has("loyal_fan"))             toAward.push("loyal_fan");
 
   if (toAward.length === 0) return;
 

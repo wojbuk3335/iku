@@ -16,6 +16,20 @@ import type { BadgeWithProgress } from "@/lib/profile/badges";
 import type { Post } from "@/app/profile/wall-actions";
 import type { FollowingUser, SuggestedUser } from "@/app/profile/znajomi-actions";
 import { usernameFromEmail } from "@/lib/profile/username";
+import {
+  PostGridThumb,
+  MAX_POST_IMAGES,
+  MAX_POST_IMAGE_BYTES,
+  MAX_POST_VIDEO_BYTES,
+} from "@/components/profile/post-media";
+import type { PostMediaItem } from "@/lib/profile/post-media";
+
+type DraftMedia = {
+  id: string;
+  file: File;
+  preview: string;
+  type: "image" | "video";
+};
 
 type ProfilePageProps = {
   email: string;
@@ -35,6 +49,7 @@ type ProfilePageProps = {
   badgesWithProgress: BadgeWithProgress[];
   posts: Post[];
   taggedPosts?: Post[];
+  savedPosts?: Post[];
   followingUsers: FollowingUser[];
   followerUsers: FollowingUser[];
   suggestedUsers: SuggestedUser[];
@@ -142,6 +157,12 @@ function BadgeIcon({ id, size = 20, color = "currentColor" }: { id: string; size
       return <svg {...p}><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" strokeLinejoin="round"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>;
     case "top_participant":
       return <svg {...p}><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11" strokeLinejoin="round"/></svg>;
+    case "social_butterfly":
+      return <svg {...p}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>;
+    case "city_hopper":
+      return <svg {...p}><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><path d="M9 9v.01"/><path d="M9 12v.01"/><path d="M9 15v.01"/><path d="M9 18v.01"/></svg>;
+    case "loyal_fan":
+      return <svg {...p}><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" strokeLinejoin="round"/></svg>;
     default:
       return <svg {...p}><circle cx="12" cy="12" r="10"/></svg>;
   }
@@ -165,6 +186,7 @@ export function ProfilePage({
   badgesWithProgress,
   posts,
   taggedPosts = [],
+  savedPosts = [],
   followingUsers,
   followerUsers,
   suggestedUsers,
@@ -182,11 +204,11 @@ export function ProfilePage({
   const [savingBio, setSavingBio] = useState(false);
   const [postContent, setPostContent] = useState("");
   const [postingContent, setPostingContent] = useState(false);
-  const [postImageFile, setPostImageFile] = useState<File | null>(null);
-  const [postImagePreview, setPostImagePreview] = useState<string | null>(null);
+  const [postMedia, setPostMedia] = useState<DraftMedia[]>([]);
   const [uploadingPostImage, setUploadingPostImage] = useState(false);
   const [localPosts, setLocalPosts] = useState<Post[]>(posts);
   const [localTaggedPosts, setLocalTaggedPosts] = useState<Post[]>(taggedPosts);
+  const [localSavedPosts, setLocalSavedPosts] = useState<Post[]>(savedPosts);
   const [taggedPeople, setTaggedPeople] = useState<SuggestedUser[]>([]);
   const [tagQuery, setTagQuery] = useState("");
   const [tagResults, setTagResults] = useState<SuggestedUser[]>([]);
@@ -226,11 +248,13 @@ export function ProfilePage({
   const [searchingUsers, setSearchingUsers] = useState(false);
   const [followingThisProfile, setFollowingThisProfile] = useState(initialIsFollowing);
   const [togglingFollowProfile, setTogglingFollowProfile] = useState(false);
+  const [badgesExpanded, setBadgesExpanded] = useState(false);
 
   // Przy zmianie profilu (nawigacja /profile/A → /profile/B) zsynchronizuj lokalny stan z propsami
   useEffect(() => {
     setLocalPosts(posts);
     setLocalTaggedPosts(taggedPosts);
+    setLocalSavedPosts(savedPosts);
     setCurrentAvatarUrl(avatarUrl);
     setBioValue(bio ?? "");
     setNameValue(fullName ?? "");
@@ -242,6 +266,7 @@ export function ProfilePage({
     setActiveTab("posty");
     setStatsPanel(null);
     setComposeOpen(false);
+    setBadgesExpanded(false);
     setEditingBio(false);
     setEditingName(false);
     setEditingLocation(false);
@@ -276,6 +301,14 @@ export function ProfilePage({
   const displayName = nameValue || fallbackName;
   const username = profileUsername;
   const unlockedBadges = badgesWithProgress.filter((b) => b.unlocked);
+  const previewBadgesOrdered = [
+    ...unlockedBadges,
+    ...badgesWithProgress.filter((b) => !b.unlocked),
+  ];
+  const PREVIEW_BADGES_COUNT = 3;
+  const visiblePreviewBadges = badgesExpanded
+    ? previewBadgesOrdered
+    : previewBadgesOrdered.slice(0, PREVIEW_BADGES_COUNT);
   const postsCount = localPosts.length;
 
   async function handleShareProfile() {
@@ -366,11 +399,89 @@ export function ProfilePage({
 
   function resetCompose() {
     setPostContent("");
-    clearPostImage();
+    clearPostMedia();
     setTaggedPeople([]);
     setTagQuery("");
     setTagResults([]);
     setTagPickerOpen(false);
+  }
+
+  function clearPostMedia() {
+    setPostMedia((prev) => {
+      for (const item of prev) URL.revokeObjectURL(item.preview);
+      return [];
+    });
+  }
+
+  function removePostMedia(id: string) {
+    setPostMedia((prev) => {
+      const target = prev.find((m) => m.id === id);
+      if (target) URL.revokeObjectURL(target.preview);
+      return prev.filter((m) => m.id !== id);
+    });
+  }
+
+  function handlePostImagesChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    if (files.length === 0) return;
+
+    setPostMedia((prev) => {
+      const withoutVideo = prev.filter((m) => m.type !== "video");
+      for (const v of prev.filter((m) => m.type === "video")) {
+        URL.revokeObjectURL(v.preview);
+      }
+
+      const room = MAX_POST_IMAGES - withoutVideo.length;
+      if (room <= 0) {
+        alert(`Możesz dodać max ${MAX_POST_IMAGES} zdjęć.`);
+        return withoutVideo;
+      }
+
+      const next = [...withoutVideo];
+      for (const file of files.slice(0, room)) {
+        if (!file.type.startsWith("image/")) continue;
+        if (file.size > MAX_POST_IMAGE_BYTES) {
+          alert(`Zdjęcie „${file.name}” jest za duże (max 5 MB).`);
+          continue;
+        }
+        next.push({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          file,
+          preview: URL.createObjectURL(file),
+          type: "image",
+        });
+      }
+      if (files.length > room) {
+        alert(`Dodano tylko ${room} zdjęć (limit ${MAX_POST_IMAGES}).`);
+      }
+      return next;
+    });
+  }
+
+  function handlePostVideoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("video/")) {
+      alert("Wybierz plik wideo (mp4, webm, mov).");
+      return;
+    }
+    if (file.size > MAX_POST_VIDEO_BYTES) {
+      alert("Wideo max 50 MB.");
+      return;
+    }
+    setPostMedia((prev) => {
+      for (const item of prev) URL.revokeObjectURL(item.preview);
+      return [
+        {
+          id: `${Date.now()}-video`,
+          file,
+          preview: URL.createObjectURL(file),
+          type: "video",
+        },
+      ];
+    });
   }
 
   function toggleTagPerson(person: SuggestedUser) {
@@ -422,35 +533,24 @@ export function ProfilePage({
     }
   }
 
-  function handlePostImageChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > 5 * 1024 * 1024) { alert("Zdjęcie max 5 MB."); return; }
-    setPostImageFile(file);
-    setPostImagePreview(URL.createObjectURL(file));
-  }
-
-  function clearPostImage() {
-    setPostImageFile(null);
-    setPostImagePreview(null);
-  }
-
   async function handleCreatePost() {
-    if (!postContent.trim() && !postImageFile) return;
+    if (!postContent.trim() && postMedia.length === 0) return;
     setPostingContent(true);
-    let imageUrl: string | null = null;
+    const mediaItems: PostMediaItem[] = [];
     try {
-      if (postImageFile) {
+      if (postMedia.length > 0) {
         setUploadingPostImage(true);
         const supabase = createClient();
-        const ext = postImageFile.name.split(".").pop();
-        const path = `${userId}/${Date.now()}.${ext}`;
-        const { error: upErr } = await supabase.storage
-          .from("post-images")
-          .upload(path, postImageFile, { upsert: false });
-        if (upErr) throw upErr;
-        const { data } = supabase.storage.from("post-images").getPublicUrl(path);
-        imageUrl = data.publicUrl;
+        for (const item of postMedia) {
+          const ext = item.file.name.split(".").pop() || (item.type === "video" ? "mp4" : "jpg");
+          const path = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+          const { error: upErr } = await supabase.storage
+            .from("post-images")
+            .upload(path, item.file, { upsert: false, contentType: item.file.type });
+          if (upErr) throw upErr;
+          const { data } = supabase.storage.from("post-images").getPublicUrl(path);
+          mediaItems.push({ url: data.publicUrl, type: item.type });
+        }
         setUploadingPostImage(false);
       }
       let finalContent = postContent.trim();
@@ -467,16 +567,19 @@ export function ProfilePage({
         }
       }
 
+      const cover = mediaItems.find((m) => m.type === "image")?.url ?? mediaItems[0]?.url ?? null;
       const postId = await createPost(
         finalContent,
-        imageUrl,
+        cover,
         undefined,
         taggedPeople.map((p) => p.id),
+        mediaItems,
       );
       const newPost: Post = {
         id: postId,
         content: finalContent,
-        image_url: imageUrl,
+        image_url: cover,
+        media_urls: mediaItems,
         created_at: new Date().toISOString(),
         user_id: userId,
         author_name: nameValue || null,
@@ -1054,7 +1157,12 @@ export function ProfilePage({
                         className="block rounded-2xl bg-white/5 p-3 transition-colors hover:bg-white/10"
                       >
                         <p className="text-sm text-zinc-200 line-clamp-3">
-                          {post.content || (post.image_url ? "📷 Zdjęcie" : "Post")}
+                          {post.content?.trim() ||
+                            (post.media_urls?.some((m) => m.type === "video")
+                              ? "🎬 Wideo"
+                              : post.media_urls?.length || post.image_url
+                                ? "📷 Zdjęcie"
+                                : "Post")}
                         </p>
                         <p className="mt-1 text-[11px] text-zinc-600">
                           {new Date(post.created_at).toLocaleDateString("pl-PL", {
@@ -1144,7 +1252,7 @@ export function ProfilePage({
         )}
       </div>
 
-      {/* Podgląd odznak — tylko właściciel */}
+      {/* Podgląd odznak — tylko właściciel; 3 widoczne, „Pokaż wszystkie” rozwija listę */}
       {isOwner && (
       <section className="mt-5 px-4">
         <div className="mb-3 flex items-center justify-between gap-3">
@@ -1157,44 +1265,115 @@ export function ProfilePage({
               <line x1="4" y1="4" x2="20" y2="4" stroke="#f59e0b" strokeWidth="1.7" strokeLinecap="round" />
               <circle cx="12" cy="10" r="2.2" fill="#fbbf24" opacity="0.9" />
             </svg>
-            <h2 className="text-base font-bold text-white">Odznaki</h2>
+            <div>
+              <h2 className="text-base font-bold text-white">
+                {badgesExpanded ? "Wszystkie odznaki" : "Odznaki"}
+              </h2>
+              {badgesExpanded && (
+                <p className="text-xs text-zinc-500">
+                  {unlockedBadges.length} zdobytych z {previewBadgesOrdered.length}
+                </p>
+              )}
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setActiveTab("badges")}
-            className="cursor-pointer text-sm font-medium text-violet-400 transition-colors hover:text-violet-300"
-          >
-            Pokaż wszystkie &gt;
-          </button>
+          {previewBadgesOrdered.length > PREVIEW_BADGES_COUNT && (
+            <button
+              type="button"
+              onClick={() => setBadgesExpanded((v) => !v)}
+              className="cursor-pointer text-sm font-medium text-violet-400 transition-colors hover:text-violet-300"
+            >
+              {badgesExpanded ? "Zwiń" : "Pokaż wszystkie >"}
+            </button>
+          )}
         </div>
 
-        {unlockedBadges.length === 0 ? (
+        {previewBadgesOrdered.length === 0 ? (
           <p className="rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-6 text-center text-sm text-zinc-500">
-            Brak odblokowanych odznak.
+            Brak odznak.
           </p>
-        ) : (
-          <div className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {unlockedBadges.slice(0, 4).map((badge) => (
-              <button
-                key={badge.id}
-                type="button"
-                onClick={() => setActiveTab("badges")}
-                className="flex w-[148px] shrink-0 cursor-pointer flex-col items-center gap-3 rounded-2xl border border-white/10 bg-[#0c0c14] px-3 py-4 text-center transition-colors hover:border-white/20 hover:bg-white/[0.03]"
-              >
+        ) : badgesExpanded ? (
+          <div className="max-h-[340px] overflow-y-auto overscroll-contain rounded-2xl border border-white/10 bg-[#0c0c14] p-3 [scrollbar-width:thin] [scrollbar-color:#52525b_transparent]">
+            <div className="grid grid-cols-3 gap-2.5">
+              {visiblePreviewBadges.map((badge) => (
                 <div
-                  className="relative flex h-16 w-16 items-center justify-center rounded-full"
-                  style={{
-                    background: `radial-gradient(circle, ${rarityColor(badge.rarity)}33 0%, transparent 70%)`,
-                  }}
+                  key={badge.id}
+                  className={`flex flex-col items-center gap-2 rounded-2xl border px-2 py-3 text-center ${
+                    badge.unlocked
+                      ? "border-white/15 bg-white/[0.04]"
+                      : "border-white/5 bg-transparent opacity-45"
+                  }`}
+                  style={
+                    badge.unlocked
+                      ? { boxShadow: `0 0 0 1px ${rarityColor(badge.rarity)}33` }
+                      : undefined
+                  }
                 >
                   <div
                     className="flex h-12 w-12 items-center justify-center rounded-2xl"
-                    style={{ background: rarityGradient(badge.rarity) }}
+                    style={{
+                      background: badge.unlocked
+                        ? rarityGradient(badge.rarity)
+                        : "rgba(255,255,255,0.06)",
+                    }}
                   >
-                    <BadgeIcon id={badge.id} size={26} color="white" />
+                    <BadgeIcon
+                      id={badge.id}
+                      size={24}
+                      color={badge.unlocked ? "white" : "#71717a"}
+                    />
+                  </div>
+                  <span
+                    className={`line-clamp-2 w-full text-[11px] font-medium leading-snug ${
+                      badge.unlocked ? "text-zinc-300" : "text-zinc-600"
+                    }`}
+                  >
+                    {badge.label}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-2.5">
+            {visiblePreviewBadges.map((badge) => (
+              <button
+                key={badge.id}
+                type="button"
+                onClick={() => setBadgesExpanded(true)}
+                className={`flex cursor-pointer flex-col items-center gap-2 rounded-2xl border px-2 py-3 text-center transition-colors hover:border-white/20 ${
+                  badge.unlocked
+                    ? "border-white/10 bg-[#0c0c14]"
+                    : "border-white/5 bg-[#0c0c14] opacity-50"
+                }`}
+              >
+                <div
+                  className="relative flex h-14 w-14 items-center justify-center rounded-full"
+                  style={{
+                    background: badge.unlocked
+                      ? `radial-gradient(circle, ${rarityColor(badge.rarity)}33 0%, transparent 70%)`
+                      : "transparent",
+                  }}
+                >
+                  <div
+                    className="flex h-11 w-11 items-center justify-center rounded-2xl"
+                    style={{
+                      background: badge.unlocked
+                        ? rarityGradient(badge.rarity)
+                        : "rgba(255,255,255,0.06)",
+                    }}
+                  >
+                    <BadgeIcon
+                      id={badge.id}
+                      size={22}
+                      color={badge.unlocked ? "white" : "#71717a"}
+                    />
                   </div>
                 </div>
-                <span className="line-clamp-2 w-full text-[12px] font-medium leading-snug text-zinc-400">
+                <span
+                  className={`line-clamp-2 w-full text-[11px] font-medium leading-snug ${
+                    badge.unlocked ? "text-zinc-400" : "text-zinc-600"
+                  }`}
+                >
                   {badge.label}
                 </span>
               </button>
@@ -1296,16 +1475,10 @@ export function ProfilePage({
                     href={`/post/${post.id}`}
                     className="relative aspect-square overflow-hidden bg-white/5 transition-opacity hover:opacity-90"
                   >
-                    {post.image_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={post.image_url} alt="" className="h-full w-full object-cover" />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center bg-[#12121a] p-2">
-                        <p className="line-clamp-4 text-center text-[10px] leading-snug text-zinc-400">
-                          {post.content || "Post"}
-                        </p>
-                      </div>
-                    )}
+                    <PostGridThumb
+                      media={post.media_urls?.length ? post.media_urls : post.image_url ? [{ url: post.image_url, type: "image" }] : []}
+                      fallbackText={post.content || "Post"}
+                    />
                   </Link>
                 ))}
               </div>
@@ -1328,16 +1501,10 @@ export function ProfilePage({
                     href={`/post/${post.id}`}
                     className="relative aspect-square overflow-hidden bg-white/5 transition-opacity hover:opacity-90"
                   >
-                    {post.image_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={post.image_url} alt="" className="h-full w-full object-cover" />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center bg-[#12121a] p-2">
-                        <p className="line-clamp-4 text-center text-[10px] leading-snug text-zinc-400">
-                          {post.content?.trim() || "Post"}
-                        </p>
-                      </div>
-                    )}
+                    <PostGridThumb
+                      media={post.media_urls?.length ? post.media_urls : post.image_url ? [{ url: post.image_url, type: "image" }] : []}
+                      fallbackText={post.content?.trim() || "Post"}
+                    />
                   </Link>
                 ))}
               </div>
@@ -1460,42 +1627,83 @@ export function ProfilePage({
           </div>
         )}
 
-        {/* Zapisane */}
+        {/* Zapisane — posty + wydarzenia */}
         {activeTab === "saved" && isOwner && (
-          <div className="space-y-2 pb-4">
-            {savedEvents.length === 0 ? (
-              <div className="rounded-2xl bg-white/5 px-4 py-10 text-center">
-                <p className="text-sm text-zinc-500">Brak zapisanych wydarzeń.</p>
-              </div>
-            ) : (
-              savedEvents.map((event) => (
-                <Link
-                  key={event.id}
-                  href={`/events/${event.id}`}
-                  className="flex items-center gap-3 rounded-2xl bg-white/5 p-3 transition-colors hover:bg-white/10"
-                >
-                  <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-white/10">
-                    {event.cover_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={event.cover_url} alt="" className="h-full w-full object-cover" />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center text-xl">🎪</div>
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-white">{event.title}</p>
-                    <p className="text-xs text-amber-400">
-                      {new Date(event.starts_at).toLocaleDateString("pl-PL", {
-                        day: "numeric",
-                        month: "short",
-                        year: "numeric",
-                      })}
-                    </p>
-                    <p className="truncate text-xs text-blue-400">{event.location}</p>
-                  </div>
-                </Link>
-              ))
-            )}
+          <div className="space-y-5 pb-4">
+            <div>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                Posty
+              </h3>
+              {localSavedPosts.length === 0 ? (
+                <div className="rounded-2xl bg-white/5 px-4 py-8 text-center">
+                  <p className="text-sm text-zinc-500">
+                    Brak zapisanych postów. Wejdź w czyjś post i kliknij zakładkę.
+                  </p>
+                </div>
+              ) : (
+                <div className="-mx-4 grid grid-cols-3 gap-0.5">
+                  {localSavedPosts.map((post) => (
+                    <Link
+                      key={post.id}
+                      href={`/post/${post.id}`}
+                      className="relative aspect-square overflow-hidden bg-white/5 transition-opacity hover:opacity-90"
+                    >
+                      <PostGridThumb
+                        media={
+                          post.media_urls?.length
+                            ? post.media_urls
+                            : post.image_url
+                              ? [{ url: post.image_url, type: "image" }]
+                              : []
+                        }
+                        fallbackText={post.content?.trim() || "Post"}
+                      />
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                Wydarzenia
+              </h3>
+              {savedEvents.length === 0 ? (
+                <div className="rounded-2xl bg-white/5 px-4 py-8 text-center">
+                  <p className="text-sm text-zinc-500">Brak zapisanych wydarzeń.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {savedEvents.map((event) => (
+                    <Link
+                      key={event.id}
+                      href={`/events/${event.id}`}
+                      className="flex items-center gap-3 rounded-2xl bg-white/5 p-3 transition-colors hover:bg-white/10"
+                    >
+                      <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-white/10">
+                        {event.cover_url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={event.cover_url} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-xl">🎪</div>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-white">{event.title}</p>
+                        <p className="text-xs text-amber-400">
+                          {new Date(event.starts_at).toLocaleDateString("pl-PL", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                          })}
+                        </p>
+                        <p className="truncate text-xs text-blue-400">{event.location}</p>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -1630,42 +1838,99 @@ export function ProfilePage({
               </div>
             )}
 
-            {postImagePreview && (
-              <div className="relative mt-3 overflow-hidden rounded-xl">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={postImagePreview} alt="Podgląd" className="max-h-56 w-full object-cover" />
-                <button
-                  type="button"
-                  onClick={clearPostImage}
-                  className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-3.5 w-3.5">
-                    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
+            {postMedia.length > 0 && (
+              <div className="relative mt-3">
+                {postMedia.length === 1 && postMedia[0].type === "video" ? (
+                  <div className="relative overflow-hidden rounded-xl">
+                    <video
+                      src={postMedia[0].preview}
+                      controls
+                      playsInline
+                      className="max-h-56 w-full object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removePostMedia(postMedia[0].id)}
+                      className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-3.5 w-3.5">
+                        <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="max-h-56 overflow-y-auto rounded-xl border border-white/10 p-1.5">
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {postMedia.map((item) => (
+                        <div key={item.id} className="relative aspect-square overflow-hidden rounded-lg bg-zinc-900">
+                          {item.type === "video" ? (
+                            <video src={item.preview} muted playsInline className="h-full w-full object-cover" />
+                          ) : (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={item.preview} alt="" className="h-full w-full object-cover" />
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => removePostMedia(item.id)}
+                            className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/65 text-white hover:bg-black/80"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-3 w-3">
+                              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                            </svg>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="mt-1.5 px-1 text-[11px] text-zinc-500">
+                      {postMedia.length}/{MAX_POST_IMAGES} · kolaż
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
             <div className="mt-4 flex items-center justify-between border-t border-white/10 pt-3">
               <div className="flex items-center gap-3">
-                <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-400 transition-colors hover:text-zinc-200">
+                <label className={`flex cursor-pointer items-center gap-1.5 text-sm transition-colors ${
+                  postMedia.some((m) => m.type === "image")
+                    ? "text-violet-300"
+                    : "text-zinc-400 hover:text-zinc-200"
+                }`}>
                   <input
                     type="file"
                     accept="image/jpeg,image/png,image/webp,image/gif"
+                    multiple
                     className="sr-only"
-                    onChange={handlePostImageChange}
+                    onChange={handlePostImagesChange}
                   />
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
                     <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
                     <circle cx="8.5" cy="8.5" r="1.5" />
                     <polyline points="21 15 16 10 5 21" />
                   </svg>
-                  Zdjęcie
+                  Zdjęcia
+                </label>
+                <label className={`flex cursor-pointer items-center gap-1.5 text-sm transition-colors ${
+                  postMedia.some((m) => m.type === "video")
+                    ? "text-violet-300"
+                    : "text-zinc-400 hover:text-zinc-200"
+                }`}>
+                  <input
+                    type="file"
+                    accept="video/mp4,video/webm,video/quicktime"
+                    className="sr-only"
+                    onChange={handlePostVideoChange}
+                  />
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+                    <polygon points="23 7 16 12 23 17 23 7" />
+                    <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+                  </svg>
+                  Wideo
                 </label>
                 <button
                   type="button"
                   onClick={() => setTagPickerOpen((v) => !v)}
-                  className={`flex items-center gap-2 text-sm transition-colors ${
+                  className={`flex items-center gap-1.5 text-sm transition-colors ${
                     tagPickerOpen || taggedPeople.length > 0
                       ? "text-violet-300"
                       : "text-zinc-400 hover:text-zinc-200"
@@ -1683,10 +1948,10 @@ export function ProfilePage({
                 <button
                   type="button"
                   onClick={() => void handleCreatePost()}
-                  disabled={(!postContent.trim() && !postImageFile) || postingContent}
+                  disabled={(!postContent.trim() && postMedia.length === 0) || postingContent}
                   className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-violet-500 disabled:opacity-40"
                 >
-                  {postingContent ? "Publikuję…" : "Opublikuj"}
+                  {uploadingPostImage ? "Wysyłam…" : postingContent ? "Publikuję…" : "Opublikuj"}
                 </button>
               </div>
             </div>

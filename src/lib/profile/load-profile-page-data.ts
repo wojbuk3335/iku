@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getFollowCounts } from "@/lib/profile/get-follow-counts";
 import { getAllBadgesWithProgress } from "@/lib/profile/badges";
-import { getUserPosts, getTaggedPosts } from "@/app/profile/wall-actions";
+import { getUserPosts, getTaggedPosts, getSavedPosts } from "@/app/profile/wall-actions";
 import { getUserEventsByStatus } from "@/lib/profile/get-user-events";
 import {
   getFollowingUsers,
@@ -32,6 +32,7 @@ export type ProfilePageData = {
   badgesWithProgress: BadgeWithProgress[];
   posts: Post[];
   taggedPosts: Post[];
+  savedPosts: Post[];
   followingUsers: FollowingUser[];
   followerUsers: FollowingUser[];
   suggestedUsers: SuggestedUser[];
@@ -76,6 +77,7 @@ export async function loadProfilePageData(options: {
     badgesWithProgress,
     posts,
     taggedPosts,
+    savedPosts,
     followingUsers,
     followerUsers,
     suggestedUsers,
@@ -88,6 +90,9 @@ export async function loadProfilePageData(options: {
     getAllBadgesWithProgress(profileUserId).catch(() => []),
     getUserPosts(profileUserId).catch(() => []),
     getTaggedPosts(profileUserId).catch(() => [] as Post[]),
+    isOwner
+      ? getSavedPosts(viewerUserId).catch(() => [] as Post[])
+      : Promise.resolve([] as Post[]),
     getFollowingUsers(profileUserId).catch(() => []),
     getFollowerUsers(profileUserId).catch(() => []),
     isOwner
@@ -126,6 +131,7 @@ export async function loadProfilePageData(options: {
     badgesWithProgress,
     posts,
     taggedPosts,
+    savedPosts,
     followingUsers,
     followerUsers,
     suggestedUsers,
