@@ -180,8 +180,10 @@ export async function searchUsers(query: string): Promise<SuggestedUser[]> {
   return Array.from(merged.values()).slice(0, 20);
 }
 
-/** Główna wyszukiwarka — wszyscy użytkownicy (także obserwowani / prywatni), bez siebie. */
-export async function searchAllUsers(query: string): Promise<SuggestedUser[]> {
+async function searchProfilesByRole(
+  query: string,
+  role: "user" | "creator",
+): Promise<SuggestedUser[]> {
   const q = query.trim();
   if (q.length < 1) return [];
 
@@ -198,7 +200,7 @@ export async function searchAllUsers(query: string): Promise<SuggestedUser[]> {
     const byName = await supabase
       .from("profiles")
       .select(cols)
-      .eq("role", "user")
+      .eq("role", role)
       .neq("id", user!.id)
       .ilike("full_name", `%${q}%`)
       .limit(20);
@@ -207,7 +209,7 @@ export async function searchAllUsers(query: string): Promise<SuggestedUser[]> {
       ? await supabase
           .from("profiles")
           .select(cols)
-          .eq("role", "user")
+          .eq("role", role)
           .neq("id", user!.id)
           .ilike("username", `%${q}%`)
           .limit(20)
@@ -216,7 +218,7 @@ export async function searchAllUsers(query: string): Promise<SuggestedUser[]> {
     const byEmail = await supabase
       .from("profiles")
       .select(cols)
-      .eq("role", "user")
+      .eq("role", role)
       .neq("id", user!.id)
       .ilike("email", `%${q}%`)
       .limit(20);
@@ -226,7 +228,6 @@ export async function searchAllUsers(query: string): Promise<SuggestedUser[]> {
 
   let { byName, byUsername, byEmail } = await runSearch(true);
 
-  // Fallback gdy kolumna username jeszcze nie istnieje
   if (byName.error || byUsername.error || byEmail.error) {
     const fallback = await runSearch(false);
     byName = fallback.byName;
@@ -234,9 +235,9 @@ export async function searchAllUsers(query: string): Promise<SuggestedUser[]> {
     byEmail = fallback.byEmail;
   }
 
-  if (byName.error) console.error("searchAllUsers name:", byName.error.message);
-  if (byUsername.error) console.error("searchAllUsers username:", byUsername.error.message);
-  if (byEmail.error) console.error("searchAllUsers email:", byEmail.error.message);
+  if (byName.error) console.error(`searchProfiles(${role}) name:`, byName.error.message);
+  if (byUsername.error) console.error(`searchProfiles(${role}) username:`, byUsername.error.message);
+  if (byEmail.error) console.error(`searchProfiles(${role}) email:`, byEmail.error.message);
 
   const merged = new Map<string, SuggestedUser>();
   for (const p of [...(byName.data ?? []), ...(byUsername.data ?? []), ...(byEmail.data ?? [])]) {
@@ -258,6 +259,16 @@ export async function searchAllUsers(query: string): Promise<SuggestedUser[]> {
   }
 
   return Array.from(merged.values()).slice(0, 20);
+}
+
+/** Główna wyszukiwarka — użytkownicy (role=user). */
+export async function searchAllUsers(query: string): Promise<SuggestedUser[]> {
+  return searchProfilesByRole(query, "user");
+}
+
+/** Wyszukiwanie precyzyjne — organizatorzy (role=creator). */
+export async function searchOrganizers(query: string): Promise<SuggestedUser[]> {
+  return searchProfilesByRole(query, "creator");
 }
 
 export async function followUser(targetUserId: string): Promise<void> {

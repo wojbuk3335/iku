@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { BottomNav } from "@/components/events/bottom-nav";
 import { EventCard } from "@/components/events/event-card";
-import { HomeHeader } from "@/components/events/home-header";
+import { HomeHeader, type PreciseSearchMode } from "@/components/events/home-header";
+import { PreciseSearchPanel } from "@/components/events/precise-search-panel";
 import { StoriesRow } from "@/components/events/stories-row";
 import type { StoryAuthorGroup } from "@/app/stories/actions";
 import { searchAllUsers, type SuggestedUser } from "@/app/profile/znajomi-actions";
@@ -113,6 +114,7 @@ export function HomeFeed({ events, interests, goingCounts, storyGroups, currentU
   const [query, setQuery] = useState("");
   const [userResults, setUserResults] = useState<SuggestedUser[]>([]);
   const [searchingUsers, setSearchingUsers] = useState(false);
+  const [preciseMode, setPreciseMode] = useState<PreciseSearchMode | null>(null);
   const interestCategories = interests as EventCategory[];
 
   const sortedEvents = useMemo(
@@ -165,7 +167,15 @@ export function HomeFeed({ events, interests, goingCounts, storyGroups, currentU
 
   return (
     <div className="mx-auto min-h-dvh max-w-md bg-[#080810] pb-28 text-white">
-      <HomeHeader onSearchClick={() => document.getElementById("event-search")?.focus()} />
+      <HomeHeader onPreciseSearch={setPreciseMode} />
+
+      {preciseMode && (
+        <PreciseSearchPanel
+          mode={preciseMode}
+          events={events}
+          onClose={() => setPreciseMode(null)}
+        />
+      )}
 
       <div className="px-4 pt-3">
         <StoriesRow initialGroups={storyGroups} currentUserId={currentUserId} />
