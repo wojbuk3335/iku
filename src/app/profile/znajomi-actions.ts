@@ -239,15 +239,23 @@ async function searchProfilesByRole(
   if (byUsername.error) console.error(`searchProfiles(${role}) username:`, byUsername.error.message);
   if (byEmail.error) console.error(`searchProfiles(${role}) email:`, byEmail.error.message);
 
+  type ProfileRow = {
+    id: string;
+    full_name: string | null;
+    avatar_url: string | null;
+    email: string | null;
+    username?: string | null;
+  };
+
+  const rows = [
+    ...((byName.data ?? []) as unknown as ProfileRow[]),
+    ...((byUsername.data ?? []) as unknown as ProfileRow[]),
+    ...((byEmail.data ?? []) as unknown as ProfileRow[]),
+  ];
+
   const merged = new Map<string, SuggestedUser>();
-  for (const p of [...(byName.data ?? []), ...(byUsername.data ?? []), ...(byEmail.data ?? [])]) {
-    const row = p as {
-      id: string;
-      full_name: string | null;
-      avatar_url: string | null;
-      email: string | null;
-      username?: string | null;
-    };
+  for (const row of rows) {
+    if (!row?.id) continue;
     merged.set(row.id, {
       id: row.id,
       full_name: row.full_name,
